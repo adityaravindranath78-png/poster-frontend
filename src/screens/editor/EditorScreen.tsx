@@ -1,12 +1,11 @@
 import React, {useRef} from 'react';
-import {
-  View,
-  Text,
-  TouchableOpacity,
-  StyleSheet,
-} from 'react-native';
+import {View, Text, StyleSheet, StatusBar} from 'react-native';
 import {WebView} from 'react-native-webview';
+import ReactNativeHapticFeedback from 'react-native-haptic-feedback';
 import {useEditorStore} from '../../store/editorStore';
+import HapticPressable from '../../components/HapticPressable';
+import FadeIn from '../../components/FadeIn';
+import {colors, typography, spacing, radii, shadows, pressScale} from '../../theme';
 
 const EDITOR_HTML = `
 <!DOCTYPE html>
@@ -15,34 +14,37 @@ const EDITOR_HTML = `
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { background: #1A1A1A; display: flex; justify-content: center; align-items: center; height: 100vh; }
-    canvas { border: 1px solid #333; max-width: 100%; max-height: 100%; }
-    .empty { color: #666; font-family: -apple-system, sans-serif; font-size: 18px; text-align: center; padding: 40px; }
+    body { background: #1A1A1A; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; }
+    canvas { max-width: 100%; max-height: 100%; }
+    .empty {
+      color: rgba(255,255,255,0.35);
+      font-family: -apple-system, 'SF Pro Display', sans-serif;
+      text-align: center;
+      padding: 40px;
+    }
+    .empty h2 { font-size: 20px; font-weight: 600; margin-bottom: 8px; color: rgba(255,255,255,0.5); }
+    .empty p { font-size: 14px; line-height: 1.5; }
   </style>
 </head>
 <body>
   <div class="empty" id="placeholder">
-    <p>Select a template to start editing</p>
-    <p style="font-size:14px;margin-top:8px;color:#555">Choose a template from Home, then tap "Open in Editor"</p>
+    <h2>Canvas Editor</h2>
+    <p>Choose a template from Home<br/>and tap "Open in Editor"</p>
   </div>
   <canvas id="canvas" style="display:none"></canvas>
   <script>
-    // fabric.js will be loaded from CDN in production
-    // Bridge: receive template JSON from RN
     window.addEventListener('message', function(event) {
       try {
         var msg = JSON.parse(event.data);
         if (msg.type === 'LOAD_TEMPLATE') {
           document.getElementById('placeholder').style.display = 'none';
           document.getElementById('canvas').style.display = 'block';
-          // Initialize fabric.js canvas with template layers
           window.ReactNativeWebView.postMessage(JSON.stringify({
             type: 'TEMPLATE_LOADED',
             layerCount: msg.template.layers.length
           }));
         }
         if (msg.type === 'EXPORT') {
-          // Export canvas as base64 image
           var dataUrl = document.getElementById('canvas').toDataURL('image/png');
           window.ReactNativeWebView.postMessage(JSON.stringify({
             type: 'EXPORT_RESULT',
@@ -56,34 +58,67 @@ const EDITOR_HTML = `
 </html>
 `;
 
+interface ToolButtonProps {
+  label: string;
+  icon: string;
+  onPress: () => void;
+  disabled?: boolean;
+  accent?: boolean;
+}
+
+function ToolButton({label, icon, onPress, disabled, accent}: ToolButtonProps) {
+  return (
+    <HapticPressable
+      onPress={onPress}
+      haptic="selection"
+      disabled={disabled}
+      scaleValue={pressScale.icon}
+      style={[
+        styles.toolButton,
+        accent && styles.toolButtonAccent,
+        disabled && styles.toolButtonDisabled,
+      ]}>
+      <Text style={[styles.toolIcon, accent && styles.toolIconAccent]}>
+        {icon}
+      </Text>
+      <Text
+        style={[
+          typography.labelSmall,
+          styles.toolLabel,
+          accent && styles.toolLabelAccent,
+          disabled && styles.toolLabelDisabled,
+        ]}>
+        {label}
+      </Text>
+    </HapticPressable>
+  );
+}
+
 export default function EditorScreen() {
   const webViewRef = useRef<WebView>(null);
-  const {template, canUndo, canRedo, undo, redo} = useEditorStore();
+  const {canUndo, canRedo, undo, redo} = useEditorStore();
 
   function handleMessage(event: any) {
     try {
       const msg = JSON.parse(event.nativeEvent.data);
       if (msg.type === 'TEMPLATE_LOADED') {
-        // Template loaded in WebView
+        ReactNativeHapticFeedback.trigger('impactLight', {
+          enableVibrateFallback: true,
+          ignoreAndroidSystemSettings: false,
+        });
       }
-      if (msg.type === 'EXPORT_RESULT') {
-        // Handle exported image base64
-      }
-    } catch {
-      // Invalid message
-    }
+    } catch {}
   }
 
   function sendToWebView(message: object) {
     webViewRef.current?.postMessage(JSON.stringify(message));
   }
 
-  function handleExport() {
-    sendToWebView({type: 'EXPORT'});
-  }
-
   return (
-    <View style={styles.container}>
+    <View style={styles.screen}>
+      <StatusBar barStyle="light-content" backgroundColor={colors.surfaceDark} />
+
+      {/* Canvas */}
       <WebView
         ref={webViewRef}
         source={{html: EDITOR_HTML}}
@@ -96,82 +131,118 @@ export default function EditorScreen() {
         originWhitelist={['*']}
       />
 
-      {/* Bottom Toolbar */}
-      <View style={styles.toolbar}>
-        <TouchableOpacity
-          style={[styles.toolButton, !canUndo() && styles.toolButtonDisabled]}
-          onPress={undo}
-          disabled={!canUndo()}>
-          <Text style={styles.toolButtonText}>Undo</Text>
-        </TouchableOpacity>
+      {/* Floating Toolbar */}
+      <FadeIn delay={200} direction="up" distance={20}>
+        <View style={styles.toolbar}>
+          <View style={styles.toolbarInner}>
+            {/* History */}
+            <View style={styles.toolGroup}>
+              <ToolButton
+                label="Undo"
+                icon="↩"
+                onPress={undo}
+                disabled={!canUndo()}
+              />
+              <ToolButton
+                label="Redo"
+                icon="↪"
+                onPress={redo}
+                disabled={!canRedo()}
+              />
+            </View>
 
-        <TouchableOpacity
-          style={[styles.toolButton, !canRedo() && styles.toolButtonDisabled]}
-          onPress={redo}
-          disabled={!canRedo()}>
-          <Text style={styles.toolButtonText}>Redo</Text>
-        </TouchableOpacity>
+            <View style={styles.toolDivider} />
 
-        <TouchableOpacity style={styles.toolButton}>
-          <Text style={styles.toolButtonText}>Text</Text>
-        </TouchableOpacity>
+            {/* Creation Tools */}
+            <View style={styles.toolGroup}>
+              <ToolButton label="Text" icon="T" onPress={() => {}} />
+              <ToolButton label="Image" icon="🖼" onPress={() => {}} />
+              <ToolButton label="Sticker" icon="⭐" onPress={() => {}} />
+              <ToolButton label="BG" icon="◐" onPress={() => {}} />
+            </View>
 
-        <TouchableOpacity style={styles.toolButton}>
-          <Text style={styles.toolButtonText}>Image</Text>
-        </TouchableOpacity>
+            <View style={styles.toolDivider} />
 
-        <TouchableOpacity style={styles.toolButton}>
-          <Text style={styles.toolButtonText}>Sticker</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.toolButton, styles.exportButton]}
-          onPress={handleExport}>
-          <Text style={[styles.toolButtonText, styles.exportText]}>
-            Export
-          </Text>
-        </TouchableOpacity>
-      </View>
+            {/* Export */}
+            <ToolButton
+              label="Export"
+              icon="↗"
+              onPress={() => sendToWebView({type: 'EXPORT'})}
+              accent
+            />
+          </View>
+        </View>
+      </FadeIn>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  screen: {
     flex: 1,
-    backgroundColor: '#1A1A1A',
+    backgroundColor: colors.surfaceDark,
   },
   webview: {
     flex: 1,
-    backgroundColor: '#1A1A1A',
+    backgroundColor: colors.surfaceDark,
   },
+
+  // Toolbar
   toolbar: {
+    paddingHorizontal: spacing.md,
+    paddingBottom: spacing['3xl'],
+    paddingTop: spacing.sm,
+  },
+  toolbarInner: {
     flexDirection: 'row',
-    backgroundColor: '#2A2A2A',
-    paddingVertical: 8,
-    paddingHorizontal: 4,
-    borderTopWidth: 1,
-    borderTopColor: '#333',
+    alignItems: 'center',
+    backgroundColor: colors.surfaceDarkElevated,
+    borderRadius: radii.xl,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+    ...shadows.lg,
+  },
+  toolGroup: {
+    flexDirection: 'row',
+    gap: spacing.xxs,
+  },
+  toolDivider: {
+    width: 1,
+    height: 28,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    marginHorizontal: spacing.sm,
   },
   toolButton: {
-    flex: 1,
-    paddingVertical: 10,
     alignItems: 'center',
-    borderRadius: 8,
-    marginHorizontal: 2,
+    justifyContent: 'center',
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: radii.md,
+  },
+  toolButtonAccent: {
+    backgroundColor: colors.primary,
   },
   toolButtonDisabled: {
-    opacity: 0.4,
+    opacity: 0.3,
   },
-  toolButtonText: {
-    color: '#CCC',
-    fontSize: 12,
-    fontWeight: '600',
+  toolIcon: {
+    fontSize: 18,
+    color: 'rgba(255,255,255,0.7)',
+    marginBottom: 2,
   },
-  exportButton: {
-    backgroundColor: '#FF6B35',
+  toolIconAccent: {
+    color: colors.textOnPrimary,
   },
-  exportText: {
-    color: '#FFF',
+  toolLabel: {
+    color: 'rgba(255,255,255,0.5)',
+    fontSize: 10,
+  },
+  toolLabelAccent: {
+    color: colors.textOnPrimary,
+  },
+  toolLabelDisabled: {
+    color: 'rgba(255,255,255,0.2)',
   },
 });
