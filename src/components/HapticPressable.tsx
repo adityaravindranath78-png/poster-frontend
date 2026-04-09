@@ -4,6 +4,7 @@ import Animated, {
   useSharedValue,
   useAnimatedStyle,
   withSpring,
+  runOnJS,
 } from 'react-native-reanimated';
 import {Gesture, GestureDetector} from 'react-native-gesture-handler';
 import ReactNativeHapticFeedback from 'react-native-haptic-feedback';
@@ -48,19 +49,26 @@ export default function HapticPressable({
     });
   }, [haptic]);
 
+  const handlePress = useCallback(() => {
+    fireHaptic();
+    onPress();
+  }, [fireHaptic, onPress]);
+
   const gesture = Gesture.Tap()
     .enabled(!disabled)
     .onBegin(() => {
+      'worklet';
       scale.value = withSpring(scaleValue, springs.snappy);
       opacity.value = withSpring(0.85, springs.snappy);
     })
     .onFinalize(() => {
+      'worklet';
       scale.value = withSpring(1, springs.snappy);
       opacity.value = withSpring(1, springs.snappy);
     })
     .onEnd(() => {
-      fireHaptic();
-      onPress();
+      'worklet';
+      runOnJS(handlePress)();
     });
 
   return (
