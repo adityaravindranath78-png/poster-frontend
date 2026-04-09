@@ -1,4 +1,5 @@
 import {TemplateMeta} from '../types/template';
+import {Template} from '../types/template';
 
 export type AuthStackParamList = {
   Login: undefined;
@@ -7,7 +8,7 @@ export type AuthStackParamList = {
 
 export type MainTabParamList = {
   Home: undefined;
-  Editor: undefined;
+  Editor: {template?: Template} | undefined;
   Profile: undefined;
   Settings: undefined;
 };
