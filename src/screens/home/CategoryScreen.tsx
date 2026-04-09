@@ -3,7 +3,9 @@ import {
   View,
   FlatList,
   StyleSheet,
+  RefreshControl,
   ActivityIndicator,
+  Dimensions,
 } from 'react-native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {HomeStackParamList} from '../../navigation/types';
@@ -11,7 +13,15 @@ import {useTemplateStore} from '../../store/templateStore';
 import {getTemplates} from '../../services/templates';
 import {TemplateMeta} from '../../types/template';
 import TemplateCard from '../../components/TemplateCard';
+import FadeIn from '../../components/FadeIn';
+import {SkeletonCard} from '../../components/SkeletonLoader';
 import ErrorState from '../../components/ErrorState';
+import {colors, spacing, layout} from '../../theme';
+
+const {width: SCREEN_WIDTH} = Dimensions.get('window');
+const GRID_GAP = layout.cardGap;
+const GRID_PADDING = layout.screenPaddingH;
+const CARD_WIDTH = (SCREEN_WIDTH - GRID_PADDING * 2 - GRID_GAP) / 2;
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'Category'>;
 
@@ -21,6 +31,7 @@ export default function CategoryScreen({route, navigation}: Props) {
   const [templates, setTemplates] = useState<TemplateMeta[]>([]);
   const [nextKey, setNextKey] = useState<string | undefined>();
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -46,10 +57,14 @@ export default function CategoryScreen({route, navigation}: Props) {
     loadTemplates();
   }, [loadTemplates]);
 
+  async function handleRefresh() {
+    setRefreshing(true);
+    await loadTemplates();
+    setRefreshing(false);
+  }
+
   async function loadMore() {
-    if (!nextKey || loadingMore) {
-      return;
-    }
+    if (!nextKey || loadingMore) return;
     setLoadingMore(true);
     try {
       const res = await getTemplates({
@@ -61,7 +76,7 @@ export default function CategoryScreen({route, navigation}: Props) {
       setTemplates((prev) => [...prev, ...res.data]);
       setNextKey(res.nextKey);
     } catch {
-      // Silently fail on load more
+      // Silently fail on pagination
     } finally {
       setLoadingMore(false);
     }
@@ -73,32 +88,48 @@ export default function CategoryScreen({route, navigation}: Props) {
 
   return (
     <View style={styles.container}>
-      {loading ? (
-        <ActivityIndicator
-          size="large"
-          color="#FF6B35"
-          style={styles.loader}
-        />
+      {loading && !refreshing ? (
+        <View style={styles.skeletonGrid}>
+          {Array.from({length: 8}).map((_, i) => (
+            <FadeIn key={i} delay={i * 40} direction="up" distance={8}>
+              <SkeletonCard style={styles.skeletonCard} />
+            </FadeIn>
+          ))}
+        </View>
       ) : (
         <FlatList
           data={templates}
           keyExtractor={(item) => item.id}
           numColumns={2}
-          renderItem={({item}) => (
-            <TemplateCard
-              template={item}
-              onPress={() => navigation.navigate('TemplatePreview', {template: item})}
-              style={styles.card}
-            />
+          renderItem={({item, index}) => (
+            <FadeIn delay={index * 35} direction="up" distance={10}>
+              <TemplateCard
+                template={item}
+                onPress={() =>
+                  navigation.navigate('TemplatePreview', {template: item})
+                }
+                style={styles.card}
+                index={index}
+              />
+            </FadeIn>
           )}
           columnWrapperStyle={styles.row}
           contentContainerStyle={styles.list}
           onEndReached={loadMore}
           onEndReachedThreshold={0.5}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              tintColor={colors.primary}
+              colors={[colors.primary]}
+            />
+          }
           ListFooterComponent={
             loadingMore ? (
               <ActivityIndicator
-                color="#FF6B35"
+                color={colors.primary}
                 style={styles.footerLoader}
               />
             ) : null
@@ -112,25 +143,31 @@ export default function CategoryScreen({route, navigation}: Props) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FAFAFA',
+    backgroundColor: colors.background,
   },
   list: {
-    padding: 12,
-    paddingBottom: 24,
+    padding: GRID_PADDING,
+    paddingBottom: 100,
   },
   row: {
-    gap: 12,
+    gap: GRID_GAP,
+    marginBottom: GRID_GAP,
   },
   card: {
-    flex: 1,
-    aspectRatio: 1,
-    marginBottom: 12,
+    width: CARD_WIDTH,
+    height: CARD_WIDTH,
   },
-  loader: {
-    flex: 1,
-    justifyContent: 'center',
+  skeletonGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    padding: GRID_PADDING,
+    gap: GRID_GAP,
+  },
+  skeletonCard: {
+    width: CARD_WIDTH,
+    height: CARD_WIDTH,
   },
   footerLoader: {
-    paddingVertical: 16,
+    paddingVertical: spacing.xl,
   },
 });
