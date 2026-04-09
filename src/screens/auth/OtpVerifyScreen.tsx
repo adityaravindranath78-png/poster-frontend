@@ -1,36 +1,148 @@
-import React, {useState, useRef} from 'react';
+import React, {useState, useRef, useCallback, useEffect} from 'react';
 import {
   View,
   Text,
   TextInput,
-  TouchableOpacity,
   StyleSheet,
   Alert,
-  ActivityIndicator,
 } from 'react-native';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+  withSequence,
+  withTiming,
+} from 'react-native-reanimated';
+import ReactNativeHapticFeedback from 'react-native-haptic-feedback';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {AuthStackParamList} from '../../navigation/types';
 import {verifyOtp, sendOtp} from '../../services/auth';
+import {colors, typography, spacing, radii, shadows, springs, timing, layout} from '../../theme';
+import Button from '../../components/Button';
+import HapticPressable from '../../components/HapticPressable';
+import FadeIn from '../../components/FadeIn';
 
 type Props = NativeStackScreenProps<AuthStackParamList, 'OtpVerify'>;
 
-export default function OtpVerifyScreen({route}: Props) {
+const OTP_LENGTH = 6;
+
+function OtpCell({
+  value,
+  focused,
+  index,
+}: {
+  value: string;
+  focused: boolean;
+  index: number;
+}) {
+  const scale = useSharedValue(1);
+  const borderProgress = useSharedValue(0);
+
+  useEffect(() => {
+    borderProgress.value = withSpring(focused ? 1 : value ? 0.5 : 0, springs.quick);
+  }, [focused, value]);
+
+  useEffect(() => {
+    if (value) {
+      scale.value = withSequence(
+        withSpring(1.1, springs.snappy),
+        withSpring(1, springs.snappy),
+      );
+    }
+  }, [value]);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{scale: scale.value}],
+    borderColor:
+      focused
+        ? colors.primary
+        : value
+        ? colors.primaryLight
+        : colors.border,
+    backgroundColor: value ? colors.primaryMuted : colors.background,
+  }));
+
+  return (
+    <FadeIn delay={index * 50} direction="up" distance={10}>
+      <Animated.View style={[styles.cell, animatedStyle]}>
+        <Text style={[typography.h1, styles.cellText]}>
+          {value}
+        </Text>
+        {focused && !value && (
+          <Animated.View style={styles.cursor} />
+        )}
+      </Animated.View>
+    </FadeIn>
+  );
+}
+
+export default function OtpVerifyScreen({route, navigation}: Props) {
   const {phoneNumber} = route.params;
-  const [otp, setOtp] = useState(['', '', '', '', '', '']);
+  const [otp, setOtp] = useState<string[]>(Array(OTP_LENGTH).fill(''));
+  const [focusedIndex, setFocusedIndex] = useState(0);
   const [loading, setLoading] = useState(false);
   const [resending, setResending] = useState(false);
+  const [countdown, setCountdown] = useState(30);
   const inputs = useRef<(TextInput | null)[]>([]);
+  const shakeX = useSharedValue(0);
+
+  // Countdown timer for resend
+  useEffect(() => {
+    if (countdown <= 0) return;
+    const timer = setInterval(() => setCountdown((c) => c - 1), 1000);
+    return () => clearInterval(timer);
+  }, [countdown]);
+
+  const shakeStyle = useAnimatedStyle(() => ({
+    transform: [{translateX: shakeX.value}],
+  }));
+
+  const triggerShake = useCallback(() => {
+    ReactNativeHapticFeedback.trigger('notificationError', {
+      enableVibrateFallback: true,
+      ignoreAndroidSystemSettings: false,
+    });
+    shakeX.value = withSequence(
+      withTiming(-12, {duration: 50}),
+      withTiming(12, {duration: 50}),
+      withTiming(-8, {duration: 50}),
+      withTiming(8, {duration: 50}),
+      withTiming(0, {duration: 50}),
+    );
+  }, []);
 
   function handleChange(text: string, index: number) {
+    // Handle paste (full OTP pasted into one field)
+    if (text.length > 1) {
+      const digits = text.replace(/\D/g, '').slice(0, OTP_LENGTH).split('');
+      const newOtp = [...otp];
+      digits.forEach((d, i) => {
+        if (index + i < OTP_LENGTH) newOtp[index + i] = d;
+      });
+      setOtp(newOtp);
+      const nextIndex = Math.min(index + digits.length, OTP_LENGTH - 1);
+      inputs.current[nextIndex]?.focus();
+      if (newOtp.every((d) => d.length === 1)) {
+        handleVerify(newOtp.join(''));
+      }
+      return;
+    }
+
     const newOtp = [...otp];
     newOtp[index] = text;
     setOtp(newOtp);
 
-    if (text && index < 5) {
+    if (text) {
+      ReactNativeHapticFeedback.trigger('selection', {
+        enableVibrateFallback: true,
+        ignoreAndroidSystemSettings: false,
+      });
+    }
+
+    if (text && index < OTP_LENGTH - 1) {
       inputs.current[index + 1]?.focus();
     }
 
-    // Auto-submit when all 6 digits entered
     if (newOtp.every((d) => d.length === 1)) {
       handleVerify(newOtp.join(''));
     }
@@ -38,23 +150,29 @@ export default function OtpVerifyScreen({route}: Props) {
 
   function handleKeyPress(key: string, index: number) {
     if (key === 'Backspace' && !otp[index] && index > 0) {
+      const newOtp = [...otp];
+      newOtp[index - 1] = '';
+      setOtp(newOtp);
       inputs.current[index - 1]?.focus();
     }
   }
 
   async function handleVerify(code?: string) {
     const otpCode = code || otp.join('');
-    if (otpCode.length !== 6) {
-      Alert.alert('Invalid OTP', 'Please enter the 6-digit code');
-      return;
-    }
+    if (otpCode.length !== OTP_LENGTH) return;
+
     setLoading(true);
     try {
       await verifyOtp(otpCode);
-    } catch (error: any) {
-      Alert.alert('Verification Failed', error.message || 'Invalid OTP');
-      setOtp(['', '', '', '', '', '']);
+      ReactNativeHapticFeedback.trigger('notificationSuccess', {
+        enableVibrateFallback: true,
+        ignoreAndroidSystemSettings: false,
+      });
+    } catch (err: any) {
+      triggerShake();
+      setOtp(Array(OTP_LENGTH).fill(''));
       inputs.current[0]?.focus();
+      Alert.alert('Verification Failed', err.message || 'Invalid code');
     } finally {
       setLoading(false);
     }
@@ -64,9 +182,13 @@ export default function OtpVerifyScreen({route}: Props) {
     setResending(true);
     try {
       await sendOtp(phoneNumber);
-      Alert.alert('OTP Sent', 'A new OTP has been sent to your phone');
-    } catch (error: any) {
-      Alert.alert('Error', error.message || 'Failed to resend OTP');
+      setCountdown(30);
+      ReactNativeHapticFeedback.trigger('impactLight', {
+        enableVibrateFallback: true,
+        ignoreAndroidSystemSettings: false,
+      });
+    } catch (err: any) {
+      Alert.alert('Error', err.message || 'Failed to resend');
     } finally {
       setResending(false);
     }
@@ -74,50 +196,88 @@ export default function OtpVerifyScreen({route}: Props) {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Verify OTP</Text>
-      <Text style={styles.subtitle}>
-        Enter the 6-digit code sent to +91 {phoneNumber}
-      </Text>
+      <FadeIn delay={0} direction="down">
+        <HapticPressable
+          onPress={() => navigation.goBack()}
+          haptic="light"
+          style={styles.backButton}>
+          <Text style={styles.backArrow}>←</Text>
+        </HapticPressable>
+      </FadeIn>
 
-      <View style={styles.otpRow}>
-        {otp.map((digit, index) => (
-          <TextInput
-            key={index}
-            ref={(ref) => {
-              inputs.current[index] = ref;
-            }}
-            style={[styles.otpInput, digit ? styles.otpInputFilled : null]}
-            keyboardType="number-pad"
-            maxLength={1}
-            value={digit}
-            onChangeText={(text) => handleChange(text, index)}
-            onKeyPress={({nativeEvent}) =>
-              handleKeyPress(nativeEvent.key, index)
-            }
-            autoFocus={index === 0}
+      <View style={styles.content}>
+        <FadeIn delay={80}>
+          <Text style={[typography.h1, styles.title]}>
+            Enter verification code
+          </Text>
+        </FadeIn>
+
+        <FadeIn delay={160}>
+          <Text style={[typography.bodyMedium, styles.subtitle]}>
+            We sent a 6-digit code to{' '}
+            <Text style={styles.phoneHighlight}>+91 {phoneNumber}</Text>
+          </Text>
+        </FadeIn>
+
+        {/* OTP Cells */}
+        <Animated.View style={[styles.otpRow, shakeStyle]}>
+          {otp.map((digit, index) => (
+            <View key={index} style={styles.cellWrapper}>
+              <OtpCell
+                value={digit}
+                focused={focusedIndex === index}
+                index={index}
+              />
+              <TextInput
+                ref={(ref) => {
+                  inputs.current[index] = ref;
+                }}
+                style={styles.hiddenInput}
+                keyboardType="number-pad"
+                maxLength={index === 0 ? OTP_LENGTH : 1}
+                value=""
+                onChangeText={(text) => handleChange(text, index)}
+                onKeyPress={({nativeEvent}) =>
+                  handleKeyPress(nativeEvent.key, index)
+                }
+                onFocus={() => setFocusedIndex(index)}
+                autoFocus={index === 0}
+                caretHidden
+              />
+            </View>
+          ))}
+        </Animated.View>
+
+        {/* Verify Button */}
+        <FadeIn delay={400} style={styles.verifyWrap}>
+          <Button
+            title="Verify"
+            onPress={() => handleVerify()}
+            loading={loading}
+            disabled={otp.some((d) => !d)}
           />
-        ))}
+        </FadeIn>
+
+        {/* Resend */}
+        <FadeIn delay={480}>
+          {countdown > 0 ? (
+            <Text style={[typography.bodySmall, styles.countdownText]}>
+              Resend code in{' '}
+              <Text style={styles.countdownNumber}>{countdown}s</Text>
+            </Text>
+          ) : (
+            <HapticPressable
+              onPress={handleResend}
+              haptic="light"
+              disabled={resending}
+              style={styles.resendButton}>
+              <Text style={[typography.labelMedium, styles.resendText]}>
+                {resending ? 'Sending...' : 'Resend Code'}
+              </Text>
+            </HapticPressable>
+          )}
+        </FadeIn>
       </View>
-
-      <TouchableOpacity
-        style={styles.verifyButton}
-        onPress={() => handleVerify()}
-        disabled={loading}>
-        {loading ? (
-          <ActivityIndicator color="#FFF" />
-        ) : (
-          <Text style={styles.verifyText}>Verify</Text>
-        )}
-      </TouchableOpacity>
-
-      <TouchableOpacity
-        style={styles.resendButton}
-        onPress={handleResend}
-        disabled={resending}>
-        <Text style={styles.resendText}>
-          {resending ? 'Sending...' : "Didn't receive? Resend OTP"}
-        </Text>
-      </TouchableOpacity>
     </View>
   );
 }
@@ -125,63 +285,95 @@ export default function OtpVerifyScreen({route}: Props) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFF',
-    paddingHorizontal: 24,
+    backgroundColor: colors.surface,
+    paddingHorizontal: layout.screenPaddingH,
+  },
+  backButton: {
+    width: 44,
+    height: 44,
+    borderRadius: radii.md,
+    backgroundColor: colors.background,
+    alignItems: 'center',
     justifyContent: 'center',
+    marginTop: spacing['5xl'],
+    borderWidth: 1,
+    borderColor: colors.borderLight,
+  },
+  backArrow: {
+    fontSize: 22,
+    color: colors.textPrimary,
+    marginTop: -2,
+  },
+  content: {
+    flex: 1,
+    justifyContent: 'center',
+    marginTop: -spacing['6xl'],
   },
   title: {
-    fontSize: 28,
-    fontWeight: '800',
-    color: '#333',
+    color: colors.textPrimary,
     textAlign: 'center',
   },
   subtitle: {
-    fontSize: 15,
-    color: '#666',
+    color: colors.textSecondary,
     textAlign: 'center',
-    marginTop: 8,
-    marginBottom: 32,
+    marginTop: spacing.sm,
+    marginBottom: spacing['4xl'],
+  },
+  phoneHighlight: {
+    color: colors.textPrimary,
+    fontWeight: '600',
   },
   otpRow: {
     flexDirection: 'row',
     justifyContent: 'center',
     gap: 10,
-    marginBottom: 32,
+    marginBottom: spacing['4xl'],
   },
-  otpInput: {
-    width: 48,
-    height: 56,
-    borderRadius: 12,
+  cellWrapper: {
+    position: 'relative',
+  },
+  cell: {
+    width: 50,
+    height: 60,
+    borderRadius: radii.lg,
     borderWidth: 2,
-    borderColor: '#E0E0E0',
-    textAlign: 'center',
-    fontSize: 22,
-    fontWeight: '700',
-    color: '#333',
-    backgroundColor: '#F9F9F9',
-  },
-  otpInputFilled: {
-    borderColor: '#FF6B35',
-    backgroundColor: '#FFF5F0',
-  },
-  verifyButton: {
-    backgroundColor: '#FF6B35',
-    borderRadius: 12,
-    paddingVertical: 16,
+    borderColor: colors.border,
     alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.background,
   },
-  verifyText: {
-    fontSize: 16,
+  cellText: {
+    color: colors.textPrimary,
+    textAlign: 'center',
+  },
+  cursor: {
+    width: 2,
+    height: 24,
+    backgroundColor: colors.primary,
+    borderRadius: 1,
+  },
+  hiddenInput: {
+    ...StyleSheet.absoluteFillObject,
+    opacity: 0,
+    fontSize: 1,
+  },
+  verifyWrap: {
+    marginBottom: spacing.xl,
+  },
+  countdownText: {
+    textAlign: 'center',
+    color: colors.textTertiary,
+  },
+  countdownNumber: {
+    color: colors.primary,
     fontWeight: '700',
-    color: '#FFF',
   },
   resendButton: {
-    marginTop: 20,
-    alignItems: 'center',
+    alignSelf: 'center',
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.lg,
   },
   resendText: {
-    fontSize: 14,
-    color: '#FF6B35',
-    fontWeight: '600',
+    color: colors.primary,
   },
 });
