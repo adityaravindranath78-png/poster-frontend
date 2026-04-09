@@ -1,14 +1,12 @@
 import React, {useCallback} from 'react';
-import {ViewStyle, StyleProp} from 'react-native';
+import {Pressable, ViewStyle, StyleProp} from 'react-native';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
   withSpring,
-  runOnJS,
 } from 'react-native-reanimated';
-import {Gesture, GestureDetector} from 'react-native-gesture-handler';
 import ReactNativeHapticFeedback from 'react-native-haptic-feedback';
-import {springs, pressScale} from '../theme';
+import {pressScale} from '../theme';
 
 interface Props {
   onPress: () => void;
@@ -19,6 +17,8 @@ interface Props {
   children: React.ReactNode;
 }
 
+const SPRING_CONFIG = {damping: 15, stiffness: 400, mass: 0.8};
+
 export default function HapticPressable({
   onPress,
   style,
@@ -28,54 +28,44 @@ export default function HapticPressable({
   children,
 }: Props) {
   const scale = useSharedValue(1);
-  const opacity = useSharedValue(1);
 
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{scale: scale.value}],
-    opacity: opacity.value,
   }));
 
-  const fireHaptic = useCallback(() => {
-    if (haptic === 'none') return;
-    const typeMap = {
-      light: 'impactLight',
-      medium: 'impactMedium',
-      heavy: 'impactHeavy',
-      selection: 'selection',
-    } as const;
-    ReactNativeHapticFeedback.trigger(typeMap[haptic], {
-      enableVibrateFallback: true,
-      ignoreAndroidSystemSettings: false,
-    });
-  }, [haptic]);
+  const handlePressIn = useCallback(() => {
+    scale.value = withSpring(scaleValue, SPRING_CONFIG);
+  }, [scaleValue]);
+
+  const handlePressOut = useCallback(() => {
+    scale.value = withSpring(1, SPRING_CONFIG);
+  }, []);
 
   const handlePress = useCallback(() => {
-    fireHaptic();
+    if (haptic !== 'none') {
+      const typeMap = {
+        light: 'impactLight',
+        medium: 'impactMedium',
+        heavy: 'impactHeavy',
+        selection: 'selection',
+      } as const;
+      ReactNativeHapticFeedback.trigger(typeMap[haptic], {
+        enableVibrateFallback: true,
+        ignoreAndroidSystemSettings: false,
+      });
+    }
     onPress();
-  }, [fireHaptic, onPress]);
-
-  const gesture = Gesture.Tap()
-    .enabled(!disabled)
-    .onBegin(() => {
-      'worklet';
-      scale.value = withSpring(scaleValue, springs.snappy);
-      opacity.value = withSpring(0.85, springs.snappy);
-    })
-    .onFinalize(() => {
-      'worklet';
-      scale.value = withSpring(1, springs.snappy);
-      opacity.value = withSpring(1, springs.snappy);
-    })
-    .onEnd(() => {
-      'worklet';
-      runOnJS(handlePress)();
-    });
+  }, [haptic, onPress]);
 
   return (
-    <GestureDetector gesture={gesture}>
+    <Pressable
+      onPressIn={handlePressIn}
+      onPressOut={handlePressOut}
+      onPress={handlePress}
+      disabled={disabled}>
       <Animated.View style={[style, animatedStyle, disabled && {opacity: 0.45}]}>
         {children}
       </Animated.View>
-    </GestureDetector>
+    </Pressable>
   );
 }
