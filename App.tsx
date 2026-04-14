@@ -14,6 +14,12 @@ import Animated, {
 } from 'react-native-reanimated';
 import RootNavigator from './src/navigation/RootNavigator';
 import {useAuthStore} from './src/store/authStore';
+import {
+  requestNotificationPermission,
+  registerFcmToken,
+  setupForegroundNotifications,
+  onTokenRefresh,
+} from './src/services/notifications';
 import {colors} from './src/theme';
 
 GoogleSignin.configure({
@@ -51,9 +57,27 @@ function App() {
       if (user) {
         const token = await user.getIdToken();
         useAuthStore.getState().setToken(token);
+
+        // Register FCM token after auth
+        const fcmToken = await requestNotificationPermission();
+        if (fcmToken) {
+          registerFcmToken(fcmToken);
+        }
       }
     });
     return unsubscribe;
+  }, []);
+
+  // Foreground notification handler + token refresh
+  useEffect(() => {
+    const unsubForeground = setupForegroundNotifications();
+    const unsubTokenRefresh = onTokenRefresh((token) => {
+      registerFcmToken(token);
+    });
+    return () => {
+      unsubForeground();
+      unsubTokenRefresh();
+    };
   }, []);
 
   if (isLoading) {

@@ -1,10 +1,12 @@
-import React from 'react';
+import React, {useState} from 'react';
 import {View, Text, StyleSheet, ScrollView, Alert} from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import ReactNativeHapticFeedback from 'react-native-haptic-feedback';
 import {useSubscriptionStore} from '../../store/subscriptionStore';
+import {useUserStore} from '../../store/userStore';
 import {SUBSCRIPTION_PLANS} from '../../utils/constants';
 import {formatPrice} from '../../utils/helpers';
+import {createOrder, openRazorpayCheckout, verifyPayment} from '../../services/subscription';
 import Button from '../../components/Button';
 import HapticPressable from '../../components/HapticPressable';
 import FadeIn from '../../components/FadeIn';
@@ -104,17 +106,60 @@ function PlanCard({
 }
 
 export default function SubscriptionScreen() {
-  const {status} = useSubscriptionStore();
+  const {status, setStatus} = useSubscriptionStore();
+  const profile = useUserStore(s => s.profile);
+  const [loading, setLoading] = useState<string | null>(null);
 
-  function handleSubscribe(planId: string) {
+  async function handleSubscribe(planId: string) {
     ReactNativeHapticFeedback.trigger('impactMedium', {
       enableVibrateFallback: true,
       ignoreAndroidSystemSettings: false,
     });
-    Alert.alert(
-      'Coming Soon',
-      'Payments will be integrated with Razorpay in the next update.',
-    );
+
+    if (planId === 'free') return;
+    setLoading(planId);
+
+    try {
+      // 1. Create order on backend
+      const orderRes = await createOrder(planId);
+      if (!orderRes.success || !orderRes.data) {
+        throw new Error(orderRes.error || 'Failed to create order');
+      }
+
+      // 2. Open Razorpay checkout
+      const payment = await openRazorpayCheckout(orderRes.data, {
+        name: profile?.name || '',
+        phone: profile?.phone,
+      });
+
+      // 3. Verify payment on backend
+      const verifyRes = await verifyPayment(
+        payment.orderId,
+        payment.paymentId,
+        payment.signature,
+        planId,
+      );
+
+      if (!verifyRes.success || !verifyRes.data) {
+        throw new Error(verifyRes.error || 'Payment verification failed');
+      }
+
+      // 4. Update local state
+      setStatus(verifyRes.data.status as 'free' | 'premium' | 'business');
+
+      ReactNativeHapticFeedback.trigger('notificationSuccess', {
+        enableVibrateFallback: true,
+        ignoreAndroidSystemSettings: false,
+      });
+
+      Alert.alert('Success', 'Your subscription is now active!');
+    } catch (err: any) {
+      if (err.code !== 'PAYMENT_CANCELLED') {
+        Alert.alert('Error', err.message || 'Payment failed');
+      }
+    } finally {
+      setLoading(null);
+    }
   }
 
   return (
