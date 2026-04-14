@@ -1,4 +1,4 @@
-import React, {useEffect, useState} from 'react';
+import React, {useEffect, useState, useRef, useCallback} from 'react';
 import {
   View,
   Text,
@@ -15,19 +15,19 @@ import Animated, {
   useAnimatedStyle,
   withSpring,
   withTiming,
-  interpolate,
-  Extrapolation,
 } from 'react-native-reanimated';
 import ReactNativeHapticFeedback from 'react-native-haptic-feedback';
+import RNFS from 'react-native-fs';
+import {WebView, WebViewMessageEvent} from 'react-native-webview';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
+import Config from 'react-native-config';
 import {HomeStackParamList} from '../../navigation/types';
 import {useUserStore} from '../../store/userStore';
 import {useSubscriptionStore} from '../../store/subscriptionStore';
 import {getTemplateSchema} from '../../services/templates';
-import {fillTemplate} from '../../utils/templateEngine';
 import {Template} from '../../types/template';
+import {getEditorHtml} from '../../canvas/editorHtml';
 import Button from '../../components/Button';
-import HapticPressable from '../../components/HapticPressable';
 import FadeIn from '../../components/FadeIn';
 import SkeletonLoader from '../../components/SkeletonLoader';
 import WatermarkOverlay from '../../components/WatermarkOverlay';
@@ -49,11 +49,18 @@ type Props = NativeStackScreenProps<HomeStackParamList, 'TemplatePreview'>;
 
 export default function TemplatePreviewScreen({route, navigation}: Props) {
   const {template: meta} = route.params;
-  const profile = useUserStore((s) => s.profile);
-  const isPremium = useSubscriptionStore((s) => s.isPremium);
-  const [filledTemplate, setFilledTemplate] = useState<Template | null>(null);
+  const profile = useUserStore(s => s.profile);
+  const isPremium = useSubscriptionStore(s => s.isPremium);
+  const [schema, setSchema] = useState<Template | null>(null);
   const [loading, setLoading] = useState(true);
   const [imageLoaded, setImageLoaded] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const webViewRef = useRef<WebView>(null);
+  const [canvasReady, setCanvasReady] = useState(false);
+  const [renderComplete, setRenderComplete] = useState(false);
+
+  const cdnBase = Config.CLOUDFRONT_DOMAIN || '';
+  const editorHtml = getEditorHtml(cdnBase);
 
   const imageScale = useSharedValue(0.92);
   const imageOpacity = useSharedValue(0);
@@ -61,17 +68,27 @@ export default function TemplatePreviewScreen({route, navigation}: Props) {
   const actionsOpacity = useSharedValue(0);
 
   useEffect(() => {
-    loadAndFill();
+    loadSchema();
   }, []);
 
-  async function loadAndFill() {
+  // When canvas is ready and schema loaded, send quick render
+  useEffect(() => {
+    if (canvasReady && schema) {
+      webViewRef.current?.postMessage(
+        JSON.stringify({
+          type: 'LOAD_TEMPLATE',
+          template: schema,
+          profile: profile || undefined,
+          cdnBase,
+        }),
+      );
+    }
+  }, [canvasReady, schema, profile, cdnBase]);
+
+  async function loadSchema() {
     try {
-      const schema = await getTemplateSchema(meta.schema_url);
-      if (profile) {
-        setFilledTemplate(fillTemplate(schema, profile));
-      } else {
-        setFilledTemplate(schema);
-      }
+      const tmpl = await getTemplateSchema(meta.schema_url);
+      setSchema(tmpl);
     } catch {
       Alert.alert('Error', 'Failed to load template');
       navigation.goBack();
@@ -84,7 +101,6 @@ export default function TemplatePreviewScreen({route, navigation}: Props) {
     setImageLoaded(true);
     imageScale.value = withSpring(1, springs.smooth);
     imageOpacity.value = withTiming(1, timing.normal);
-    // Stagger action buttons in after image
     setTimeout(() => {
       actionsTranslateY.value = withSpring(0, springs.smooth);
       actionsOpacity.value = withTiming(1, timing.normal);
@@ -101,27 +117,86 @@ export default function TemplatePreviewScreen({route, navigation}: Props) {
     opacity: actionsOpacity.value,
   }));
 
+  const handleCanvasMessage = useCallback((event: WebViewMessageEvent) => {
+    try {
+      const msg = JSON.parse(event.nativeEvent.data);
+      switch (msg.type) {
+        case 'READY':
+          setCanvasReady(true);
+          break;
+        case 'TEMPLATE_LOADED':
+          setRenderComplete(true);
+          break;
+        case 'EXPORT_RESULT':
+          saveExport(msg.data);
+          break;
+      }
+    } catch {}
+  }, []);
+
+  async function saveExport(base64Data: string) {
+    try {
+      const base64 = base64Data.replace(/^data:image\/\w+;base64,/, '');
+      const filename = `Poster_${Date.now()}.png`;
+      const path =
+        Platform.OS === 'android'
+          ? `${RNFS.DownloadDirectoryPath}/${filename}`
+          : `${RNFS.DocumentDirectoryPath}/${filename}`;
+
+      if (Platform.OS === 'android') {
+        const granted = await PermissionsAndroid.request(
+          PermissionsAndroid.PERMISSIONS.WRITE_EXTERNAL_STORAGE,
+        );
+        if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
+          Alert.alert('Permission needed', 'Storage permission required');
+          setExporting(false);
+          return;
+        }
+      }
+
+      await RNFS.writeFile(path, base64, 'base64');
+
+      ReactNativeHapticFeedback.trigger('notificationSuccess', {
+        enableVibrateFallback: true,
+        ignoreAndroidSystemSettings: false,
+      });
+
+      setExporting(false);
+      Alert.alert(
+        'Downloaded',
+        `Saved to ${Platform.OS === 'android' ? 'Downloads' : 'Documents'}`,
+        [
+          {text: 'OK'},
+          {
+            text: 'Share',
+            onPress: () => handleShare(path),
+          },
+        ],
+      );
+    } catch {
+      setExporting(false);
+      Alert.alert('Error', 'Failed to save image');
+    }
+  }
+
   async function handleDownload() {
     ReactNativeHapticFeedback.trigger('impactMedium', {
       enableVibrateFallback: true,
       ignoreAndroidSystemSettings: false,
     });
-    if (Platform.OS === 'android') {
-      const granted = await PermissionsAndroid.request(
-        PermissionsAndroid.PERMISSIONS.WRITE_EXTERNAL_STORAGE,
-      );
-      if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
-        Alert.alert(
-          'Permission needed',
-          'Storage permission is required to save images',
-        );
-        return;
-      }
+
+    if (!renderComplete) {
+      Alert.alert('Please wait', 'Template is still loading');
+      return;
     }
-    Alert.alert('Downloaded', 'Image saved to gallery');
+
+    setExporting(true);
+    webViewRef.current?.postMessage(
+      JSON.stringify({type: 'EXPORT', format: 'png', quality: 1}),
+    );
   }
 
-  async function handleShare() {
+  async function handleShare(filePath?: string) {
     ReactNativeHapticFeedback.trigger('impactLight', {
       enableVibrateFallback: true,
       ignoreAndroidSystemSettings: false,
@@ -129,11 +204,13 @@ export default function TemplatePreviewScreen({route, navigation}: Props) {
     try {
       await Share.share({
         message: 'Check out this poster I made with Poster!',
-        url: meta.thumbnail_url,
+        url: filePath
+          ? Platform.OS === 'ios'
+            ? filePath
+            : `file://${filePath}`
+          : meta.thumbnail_url,
       });
-    } catch {
-      // cancelled
-    }
+    } catch {}
   }
 
   function handleEdit() {
@@ -141,18 +218,34 @@ export default function TemplatePreviewScreen({route, navigation}: Props) {
       enableVibrateFallback: true,
       ignoreAndroidSystemSettings: false,
     });
-    if (filledTemplate) {
-      navigation.getParent()?.navigate('Editor', {template: filledTemplate});
+    if (schema) {
+      navigation.getParent()?.navigate('Editor', {template: schema});
     }
   }
 
   return (
     <View style={styles.screen}>
-      <StatusBar barStyle="light-content" backgroundColor={colors.surfaceDark} />
+      <StatusBar
+        barStyle="light-content"
+        backgroundColor={colors.surfaceDark}
+      />
 
-      {/* Dark immersive background */}
+      {/* Hidden canvas WebView for rendering */}
+      <WebView
+        ref={webViewRef}
+        source={{html: editorHtml}}
+        style={styles.hiddenWebView}
+        onMessage={handleCanvasMessage}
+        javaScriptEnabled
+        domStorageEnabled
+        scrollEnabled={false}
+        originWhitelist={['*']}
+        allowFileAccess
+        mixedContentMode="always"
+      />
+
+      {/* Preview Image */}
       <View style={styles.imageContainer}>
-        {/* Skeleton while loading */}
         {!imageLoaded && (
           <SkeletonLoader
             width={IMAGE_SIZE}
@@ -162,7 +255,6 @@ export default function TemplatePreviewScreen({route, navigation}: Props) {
           />
         )}
 
-        {/* Hero image — springs in with scale */}
         <Animated.Image
           source={{uri: meta.thumbnail_url}}
           style={[styles.heroImage, imageStyle]}
@@ -170,10 +262,8 @@ export default function TemplatePreviewScreen({route, navigation}: Props) {
           onLoad={handleImageLoad}
         />
 
-        {/* Watermark overlay for free users on premium templates */}
         {!isPremium() && meta.premium && <WatermarkOverlay />}
 
-        {/* Premium pill */}
         {meta.premium && (
           <FadeIn delay={300} style={styles.premiumPill}>
             <Text style={[typography.labelSmall, styles.premiumPillText]}>
@@ -186,24 +276,23 @@ export default function TemplatePreviewScreen({route, navigation}: Props) {
       {/* Floating Action Bar */}
       <Animated.View style={[styles.actionBar, actionsStyle]}>
         <View style={styles.actionBarInner}>
-          {/* Quick Actions Row */}
           <View style={styles.quickActions}>
             <Button
-              title="Download"
+              title={exporting ? 'Saving...' : 'Download'}
               onPress={handleDownload}
               size="medium"
               style={styles.actionButton}
+              disabled={exporting}
             />
             <Button
               title="Share"
-              onPress={handleShare}
+              onPress={() => handleShare()}
               variant="secondary"
               size="medium"
               style={styles.actionButton}
             />
           </View>
 
-          {/* Edit Button */}
           <Button
             title="Open in Editor"
             onPress={handleEdit}
@@ -211,7 +300,6 @@ export default function TemplatePreviewScreen({route, navigation}: Props) {
             size="medium"
           />
 
-          {/* Premium note */}
           {meta.premium && !isPremium() && (
             <Text style={[typography.caption, styles.premiumNote]}>
               Premium template — download includes watermark
@@ -228,8 +316,12 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.surfaceDark,
   },
-
-  // Image
+  hiddenWebView: {
+    position: 'absolute',
+    width: 1,
+    height: 1,
+    opacity: 0,
+  },
   imageContainer: {
     flex: 1,
     justifyContent: 'center',
@@ -259,8 +351,6 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     letterSpacing: 0.5,
   },
-
-  // Action Bar
   actionBar: {
     paddingHorizontal: layout.screenPaddingH,
     paddingBottom: spacing['4xl'],

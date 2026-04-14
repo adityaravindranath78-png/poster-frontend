@@ -1,62 +1,34 @@
-import React, {useRef} from 'react';
-import {View, Text, StyleSheet, StatusBar} from 'react-native';
-import {WebView} from 'react-native-webview';
+import React, {useRef, useState, useCallback, useEffect} from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  StatusBar,
+  Alert,
+  Share,
+  Platform,
+  PermissionsAndroid,
+} from 'react-native';
+import {WebView, WebViewMessageEvent} from 'react-native-webview';
+import RNFS from 'react-native-fs';
 import ReactNativeHapticFeedback from 'react-native-haptic-feedback';
-import {useEditorStore} from '../../store/editorStore';
+import {BottomTabScreenProps} from '@react-navigation/bottom-tabs';
+import {useUserStore} from '../../store/userStore';
+import {getEditorHtml} from '../../canvas/editorHtml';
 import HapticPressable from '../../components/HapticPressable';
 import FadeIn from '../../components/FadeIn';
-import {colors, typography, spacing, radii, shadows, pressScale} from '../../theme';
+import {
+  colors,
+  typography,
+  spacing,
+  radii,
+  shadows,
+  pressScale,
+} from '../../theme';
+import {MainTabParamList} from '../../navigation/types';
+import Config from 'react-native-config';
 
-const EDITOR_HTML = `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { background: #1A1A1A; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; }
-    canvas { max-width: 100%; max-height: 100%; }
-    .empty {
-      color: rgba(255,255,255,0.35);
-      font-family: -apple-system, 'SF Pro Display', sans-serif;
-      text-align: center;
-      padding: 40px;
-    }
-    .empty h2 { font-size: 20px; font-weight: 600; margin-bottom: 8px; color: rgba(255,255,255,0.5); }
-    .empty p { font-size: 14px; line-height: 1.5; }
-  </style>
-</head>
-<body>
-  <div class="empty" id="placeholder">
-    <h2>Canvas Editor</h2>
-    <p>Choose a template from Home<br/>and tap "Open in Editor"</p>
-  </div>
-  <canvas id="canvas" style="display:none"></canvas>
-  <script>
-    window.addEventListener('message', function(event) {
-      try {
-        var msg = JSON.parse(event.data);
-        if (msg.type === 'LOAD_TEMPLATE') {
-          document.getElementById('placeholder').style.display = 'none';
-          document.getElementById('canvas').style.display = 'block';
-          window.ReactNativeWebView.postMessage(JSON.stringify({
-            type: 'TEMPLATE_LOADED',
-            layerCount: msg.template.layers.length
-          }));
-        }
-        if (msg.type === 'EXPORT') {
-          var dataUrl = document.getElementById('canvas').toDataURL('image/png');
-          window.ReactNativeWebView.postMessage(JSON.stringify({
-            type: 'EXPORT_RESULT',
-            data: dataUrl
-          }));
-        }
-      } catch(e) {}
-    });
-  </script>
-</body>
-</html>
-`;
+type Props = BottomTabScreenProps<MainTabParamList, 'Editor'>;
 
 interface ToolButtonProps {
   label: string;
@@ -94,34 +66,141 @@ function ToolButton({label, icon, onPress, disabled, accent}: ToolButtonProps) {
   );
 }
 
-export default function EditorScreen() {
+export default function EditorScreen({route}: Props) {
   const webViewRef = useRef<WebView>(null);
-  const {canUndo, canRedo, undo, redo} = useEditorStore();
+  const profile = useUserStore(s => s.profile);
+  const [ready, setReady] = useState(false);
+  const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
+  const [hasSelection, setHasSelection] = useState(false);
+  const [templateLoaded, setTemplateLoaded] = useState(false);
+  const pendingTemplate = useRef(route.params?.template || null);
 
-  function handleMessage(event: any) {
+  const cdnBase = Config.CLOUDFRONT_DOMAIN || '';
+  const editorHtml = getEditorHtml(cdnBase);
+
+  const send = useCallback(
+    (message: object) => {
+      webViewRef.current?.postMessage(JSON.stringify(message));
+    },
+    [],
+  );
+
+  // When the WebView is ready, load pending template if any
+  useEffect(() => {
+    if (ready && pendingTemplate.current) {
+      send({
+        type: 'LOAD_TEMPLATE',
+        template: pendingTemplate.current,
+        profile: profile || undefined,
+        cdnBase,
+      });
+      pendingTemplate.current = null;
+    }
+  }, [ready, send, profile, cdnBase]);
+
+  // Watch for new template from navigation params
+  useEffect(() => {
+    const tmpl = route.params?.template;
+    if (tmpl && ready) {
+      send({
+        type: 'LOAD_TEMPLATE',
+        template: tmpl,
+        profile: profile || undefined,
+        cdnBase,
+      });
+      setTemplateLoaded(false);
+    } else if (tmpl) {
+      pendingTemplate.current = tmpl;
+    }
+  }, [route.params?.template, ready, send, profile, cdnBase]);
+
+  function handleMessage(event: WebViewMessageEvent) {
     try {
       const msg = JSON.parse(event.nativeEvent.data);
-      if (msg.type === 'TEMPLATE_LOADED') {
-        ReactNativeHapticFeedback.trigger('impactLight', {
-          enableVibrateFallback: true,
-          ignoreAndroidSystemSettings: false,
-        });
+      switch (msg.type) {
+        case 'READY':
+          setReady(true);
+          break;
+        case 'TEMPLATE_LOADED':
+          setTemplateLoaded(true);
+          ReactNativeHapticFeedback.trigger('impactLight', {
+            enableVibrateFallback: true,
+            ignoreAndroidSystemSettings: false,
+          });
+          break;
+        case 'STATE_CHANGED':
+          setCanUndo(msg.canUndo);
+          setCanRedo(msg.canRedo);
+          break;
+        case 'SELECTION':
+          setHasSelection(msg.hasSelection);
+          break;
+        case 'EXPORT_RESULT':
+          handleExportResult(msg.data);
+          break;
+        case 'ERROR':
+          console.warn('[Canvas]', msg.message);
+          break;
       }
     } catch {}
   }
 
-  function sendToWebView(message: object) {
-    webViewRef.current?.postMessage(JSON.stringify(message));
+  async function handleExportResult(base64Data: string) {
+    try {
+      // Strip data URI prefix
+      const base64 = base64Data.replace(/^data:image\/\w+;base64,/, '');
+      const filename = `Poster_${Date.now()}.png`;
+      const path =
+        Platform.OS === 'android'
+          ? `${RNFS.DownloadDirectoryPath}/${filename}`
+          : `${RNFS.DocumentDirectoryPath}/${filename}`;
+
+      if (Platform.OS === 'android') {
+        const granted = await PermissionsAndroid.request(
+          PermissionsAndroid.PERMISSIONS.WRITE_EXTERNAL_STORAGE,
+        );
+        if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
+          Alert.alert('Permission needed', 'Storage permission required');
+          return;
+        }
+      }
+
+      await RNFS.writeFile(path, base64, 'base64');
+
+      ReactNativeHapticFeedback.trigger('notificationSuccess', {
+        enableVibrateFallback: true,
+        ignoreAndroidSystemSettings: false,
+      });
+
+      Alert.alert('Saved', `Image saved to ${Platform.OS === 'android' ? 'Downloads' : 'Documents'}`, [
+        {text: 'OK'},
+        {
+          text: 'Share',
+          onPress: () => {
+            Share.share({
+              url: Platform.OS === 'ios' ? path : `file://${path}`,
+              message: 'Made with Poster',
+            }).catch(() => {});
+          },
+        },
+      ]);
+    } catch (err: any) {
+      Alert.alert('Error', 'Failed to save image');
+    }
   }
 
   return (
     <View style={styles.screen}>
-      <StatusBar barStyle="light-content" backgroundColor={colors.surfaceDark} />
+      <StatusBar
+        barStyle="light-content"
+        backgroundColor={colors.surfaceDark}
+      />
 
-      {/* Canvas */}
+      {/* Canvas WebView */}
       <WebView
         ref={webViewRef}
-        source={{html: EDITOR_HTML}}
+        source={{html: editorHtml}}
         style={styles.webview}
         onMessage={handleMessage}
         javaScriptEnabled
@@ -129,7 +208,21 @@ export default function EditorScreen() {
         scrollEnabled={false}
         bounces={false}
         originWhitelist={['*']}
+        allowFileAccess
+        mixedContentMode="always"
       />
+
+      {/* Empty state overlay */}
+      {!templateLoaded && (
+        <View style={styles.emptyOverlay}>
+          <FadeIn delay={200}>
+            <Text style={styles.emptyTitle}>Canvas Editor</Text>
+            <Text style={styles.emptyDesc}>
+              Choose a template from Home{'\n'}and tap "Open in Editor"
+            </Text>
+          </FadeIn>
+        </View>
+      )}
 
       {/* Floating Toolbar */}
       <FadeIn delay={200} direction="up" distance={20}>
@@ -140,14 +233,14 @@ export default function EditorScreen() {
               <ToolButton
                 label="Undo"
                 icon="↩"
-                onPress={undo}
-                disabled={!canUndo()}
+                onPress={() => send({type: 'UNDO'})}
+                disabled={!canUndo}
               />
               <ToolButton
                 label="Redo"
                 icon="↪"
-                onPress={redo}
-                disabled={!canRedo()}
+                onPress={() => send({type: 'REDO'})}
+                disabled={!canRedo}
               />
             </View>
 
@@ -155,10 +248,24 @@ export default function EditorScreen() {
 
             {/* Creation Tools */}
             <View style={styles.toolGroup}>
-              <ToolButton label="Text" icon="T" onPress={() => {}} />
-              <ToolButton label="Image" icon="🖼" onPress={() => {}} />
-              <ToolButton label="Sticker" icon="⭐" onPress={() => {}} />
-              <ToolButton label="BG" icon="◐" onPress={() => {}} />
+              <ToolButton
+                label="Text"
+                icon="T"
+                onPress={() =>
+                  send({
+                    type: 'ADD_TEXT',
+                    text: 'Tap to edit',
+                    size: 40,
+                    color: '#FFFFFF',
+                  })
+                }
+              />
+              <ToolButton
+                label="Delete"
+                icon="✕"
+                onPress={() => send({type: 'DELETE_SELECTED'})}
+                disabled={!hasSelection}
+              />
             </View>
 
             <View style={styles.toolDivider} />
@@ -167,8 +274,9 @@ export default function EditorScreen() {
             <ToolButton
               label="Export"
               icon="↗"
-              onPress={() => sendToWebView({type: 'EXPORT'})}
+              onPress={() => send({type: 'EXPORT', format: 'png', quality: 1})}
               accent
+              disabled={!templateLoaded}
             />
           </View>
         </View>
@@ -185,6 +293,27 @@ const styles = StyleSheet.create({
   webview: {
     flex: 1,
     backgroundColor: colors.surfaceDark,
+  },
+
+  // Empty overlay
+  emptyOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: colors.surfaceDark,
+  },
+  emptyTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.5)',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  emptyDesc: {
+    fontSize: 14,
+    lineHeight: 22,
+    color: 'rgba(255,255,255,0.35)',
+    textAlign: 'center',
   },
 
   // Toolbar
