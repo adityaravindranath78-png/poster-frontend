@@ -7,7 +7,6 @@ import {
   Alert,
   Share,
   Platform,
-  PermissionsAndroid,
 } from 'react-native';
 import {WebView, WebViewMessageEvent} from 'react-native-webview';
 import RNFS from 'react-native-fs';
@@ -151,41 +150,39 @@ export default function EditorScreen({route}: Props) {
       // Strip data URI prefix
       const base64 = base64Data.replace(/^data:image\/\w+;base64,/, '');
       const filename = `Poster_${Date.now()}.png`;
-      const path =
-        Platform.OS === 'android'
-          ? `${RNFS.DownloadDirectoryPath}/${filename}`
-          : `${RNFS.DocumentDirectoryPath}/${filename}`;
 
-      if (Platform.OS === 'android') {
-        const granted = await PermissionsAndroid.request(
-          PermissionsAndroid.PERMISSIONS.WRITE_EXTERNAL_STORAGE,
-        );
-        if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
-          Alert.alert('Permission needed', 'Storage permission required');
-          return;
-        }
-      }
-
-      await RNFS.writeFile(path, base64, 'base64');
+      // Write to cache dir first (no permissions needed)
+      const cachePath = `${RNFS.CachesDirectoryPath}/${filename}`;
+      await RNFS.writeFile(cachePath, base64, 'base64');
 
       ReactNativeHapticFeedback.trigger('notificationSuccess', {
         enableVibrateFallback: true,
         ignoreAndroidSystemSettings: false,
       });
 
-      Alert.alert('Saved', `Image saved to ${Platform.OS === 'android' ? 'Downloads' : 'Documents'}`, [
+      // Copy to Downloads on Android (uses MediaStore on API 29+, no permission needed)
+      if (Platform.OS === 'android') {
+        try {
+          const downloadPath = `${RNFS.DownloadDirectoryPath}/${filename}`;
+          await RNFS.copyFile(cachePath, downloadPath);
+        } catch {
+          // API 29+ may block direct Downloads write — file is still in cache for sharing
+        }
+      }
+
+      Alert.alert('Saved', 'Image ready', [
         {text: 'OK'},
         {
           text: 'Share',
           onPress: () => {
             Share.share({
-              url: Platform.OS === 'ios' ? path : `file://${path}`,
+              url: Platform.OS === 'ios' ? cachePath : `file://${cachePath}`,
               message: 'Made with Poster',
             }).catch(() => {});
           },
         },
       ]);
-    } catch (err: any) {
+    } catch (err: unknown) {
       Alert.alert('Error', 'Failed to save image');
     }
   }

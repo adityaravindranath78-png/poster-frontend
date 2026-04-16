@@ -32,8 +32,8 @@ export function getEditorHtml(cdnBase: string): string {
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-html,body{width:100%;height:100%;overflow:hidden;background:#1A1A1A;touch-action:none}
-#wrap{width:100%;height:100%;display:flex;justify-content:center;align-items:center}
+html,body{width:100vw;height:100vh;overflow:hidden;background:#1A1A1A;touch-action:none}
+#wrap{width:100vw;height:100vh;display:flex;justify-content:center;align-items:center;overflow:hidden}
 canvas{display:block}
 </style>
 </head>
@@ -81,9 +81,8 @@ canvas{display:block}
   }
 
   function initCanvas(w, h){
-    var wrap = document.getElementById('wrap');
-    var maxW = wrap.clientWidth;
-    var maxH = wrap.clientHeight;
+    var maxW = window.innerWidth;
+    var maxH = window.innerHeight;
     var scale = Math.min(maxW/w, maxH/h, 1);
     var displayW = Math.floor(w * scale);
     var displayH = Math.floor(h * scale);
@@ -97,13 +96,15 @@ canvas{display:block}
       enableRetinaScaling: false
     });
 
-    // Scale canvas element to fit screen
-    var ce = canvas.getElement();
-    var cw = canvas.wrapperEl;
-    ce.style.width = displayW + 'px';
-    ce.style.height = displayH + 'px';
-    cw.style.width = displayW + 'px';
-    cw.style.height = displayH + 'px';
+    // Scale both lower and upper canvas elements to fit screen
+    var wrapperEl = canvas.wrapperEl;
+    wrapperEl.style.width = displayW + 'px';
+    wrapperEl.style.height = displayH + 'px';
+    var canvases = wrapperEl.querySelectorAll('canvas');
+    for(var ci=0; ci<canvases.length; ci++){
+      canvases[ci].style.width = displayW + 'px';
+      canvases[ci].style.height = displayH + 'px';
+    }
 
     canvas.on('object:modified', saveState);
     canvas.on('selection:created', notifySelection);
