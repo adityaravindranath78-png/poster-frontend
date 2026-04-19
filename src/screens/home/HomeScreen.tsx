@@ -77,6 +77,7 @@ function CategoryCard({
   index,
 }: CatCardProps) {
   const [loaded, setLoaded] = useState(false);
+  const showFallback = !thumbnail || !loaded;
   return (
     <FadeIn delay={60 + index * 30} distance={12}>
       <Pressable
@@ -86,12 +87,14 @@ function CategoryCard({
           {width, height, backgroundColor: color},
           pressed && styles.catCardPressed,
         ]}>
-        {/* Color gradient fallback — always behind image */}
-        <LinearGradient
-          colors={[color, '#1A0A05']}
-          style={StyleSheet.absoluteFillObject}
-          pointerEvents="none"
-        />
+        {/* Color gradient — shows while image loads or when no template exists yet */}
+        {showFallback && (
+          <LinearGradient
+            colors={[color, '#1A0A05']}
+            style={StyleSheet.absoluteFillObject}
+            pointerEvents="none"
+          />
+        )}
         {thumbnail ? (
           <Image
             source={{uri: thumbnail}}
@@ -103,21 +106,17 @@ function CategoryCard({
             resizeMode="cover"
           />
         ) : null}
-        {/* Dark fade at bottom so label is always legible on any image */}
-        <LinearGradient
-          colors={['transparent', 'rgba(0, 0, 0, 0.78)']}
-          locations={[0.45, 1]}
-          style={StyleSheet.absoluteFillObject}
-          pointerEvents="none"
-        />
-        <View style={styles.catLabelWrap}>
-          <Text style={styles.catLabel} numberOfLines={1}>
-            {label}
-          </Text>
-          <Text style={styles.catHi} numberOfLines={1}>
-            {hi}
-          </Text>
-        </View>
+        {/* Label only when no thumbnail — template already carries its own typography */}
+        {showFallback && (
+          <View style={styles.catLabelWrap}>
+            <Text style={styles.catLabel} numberOfLines={1}>
+              {label}
+            </Text>
+            <Text style={styles.catHi} numberOfLines={1}>
+              {hi}
+            </Text>
+          </View>
+        )}
       </Pressable>
     </FadeIn>
   );
