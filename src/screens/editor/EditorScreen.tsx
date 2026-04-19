@@ -7,65 +7,298 @@ import {
   Alert,
   Share,
   Platform,
+  Pressable,
+  ActivityIndicator,
+  ScrollView,
 } from 'react-native';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withTiming,
+  withSpring,
+} from 'react-native-reanimated';
 import {WebView, WebViewMessageEvent} from 'react-native-webview';
 import RNFS from 'react-native-fs';
 import ReactNativeHapticFeedback from 'react-native-haptic-feedback';
-import {BottomTabScreenProps} from '@react-navigation/bottom-tabs';
+import ImageCropPicker from 'react-native-image-crop-picker';
+import {NativeStackScreenProps} from '@react-navigation/native-stack';
+import FadeIn from '../../components/FadeIn';
+import {HomeStackParamList} from '../../navigation/types';
 import {useUserStore} from '../../store/userStore';
 import {getEditorHtml} from '../../canvas/editorHtml';
-import HapticPressable from '../../components/HapticPressable';
-import FadeIn from '../../components/FadeIn';
-import {
-  colors,
-  typography,
-  spacing,
-  radii,
-  shadows,
-  pressScale,
-} from '../../theme';
-import {MainTabParamList} from '../../navigation/types';
 import Config from 'react-native-config';
 
-type Props = BottomTabScreenProps<MainTabParamList, 'Editor'>;
+// Editorial palette
+const ink = '#1A1512';
+const paper = '#FAF5EC';
+const paperDeep = '#F2E9D7';
+const saffron = '#E85D2F';
+const saffronDeep = '#C4441C';
+const canvasBg = '#0F0C0A';
+const surfaceHigh = '#1F1814';
+const hairDark = 'rgba(255, 255, 255, 0.08)';
+const hairDarkStrong = 'rgba(255, 255, 255, 0.16)';
+const ashOnDark = 'rgba(255, 255, 255, 0.58)';
+const mutedOnDark = 'rgba(255, 255, 255, 0.36)';
 
-interface ToolButtonProps {
+// Preset background swatches
+const BG_COLORS = [
+  '#1A1512', // ink
+  '#FFFFFF',
+  '#FAF5EC',
+  '#E85D2F',
+  '#9C2223',
+  '#143B5E',
+  '#2E7D5C',
+  '#8B1E8B',
+  '#4C3A7B',
+  '#F4A72C',
+];
+
+type Props = NativeStackScreenProps<HomeStackParamList, 'Editor'>;
+
+type ToolProps = {
+  icon: React.ReactNode;
   label: string;
-  icon: string;
   onPress: () => void;
   disabled?: boolean;
-  accent?: boolean;
-}
+  active?: boolean;
+};
 
-function ToolButton({label, icon, onPress, disabled, accent}: ToolButtonProps) {
+function Tool({icon, label, onPress, disabled, active}: ToolProps) {
   return (
-    <HapticPressable
+    <Pressable
       onPress={onPress}
-      haptic="selection"
       disabled={disabled}
-      scaleValue={pressScale.icon}
-      style={[
-        styles.toolButton,
-        accent && styles.toolButtonAccent,
-        disabled && styles.toolButtonDisabled,
+      style={({pressed}) => [
+        styles.tool,
+        active && styles.toolActive,
+        pressed && !disabled && styles.toolPressed,
+        disabled && styles.toolDisabled,
       ]}>
-      <Text style={[styles.toolIcon, accent && styles.toolIconAccent]}>
-        {icon}
-      </Text>
+      <View style={styles.toolIcon}>{icon}</View>
       <Text
         style={[
-          typography.labelSmall,
           styles.toolLabel,
-          accent && styles.toolLabelAccent,
+          active && styles.toolLabelActive,
           disabled && styles.toolLabelDisabled,
         ]}>
         {label}
       </Text>
-    </HapticPressable>
+    </Pressable>
   );
 }
 
-export default function EditorScreen({route}: Props) {
+/* ───── Icon primitives (View-based, no icon-font dependency) ───── */
+function UndoIcon({muted}: {muted?: boolean}) {
+  const c = muted ? mutedOnDark : '#FFFFFF';
+  return (
+    <View style={iconStyles.wrap}>
+      <View
+        style={{
+          width: 14,
+          height: 9,
+          borderTopWidth: 2,
+          borderLeftWidth: 2,
+          borderColor: c,
+          borderTopLeftRadius: 8,
+          transform: [{translateX: 2}],
+        }}
+      />
+      <View
+        style={{
+          position: 'absolute',
+          left: 0,
+          top: 6,
+          width: 0,
+          height: 0,
+          borderTopWidth: 5,
+          borderBottomWidth: 0,
+          borderRightWidth: 6,
+          borderLeftWidth: 0,
+          borderStyle: 'solid',
+          backgroundColor: 'transparent',
+          borderTopColor: c,
+          borderRightColor: 'transparent',
+        }}
+      />
+    </View>
+  );
+}
+
+function RedoIcon({muted}: {muted?: boolean}) {
+  const c = muted ? mutedOnDark : '#FFFFFF';
+  return (
+    <View style={iconStyles.wrap}>
+      <View
+        style={{
+          width: 14,
+          height: 9,
+          borderTopWidth: 2,
+          borderRightWidth: 2,
+          borderColor: c,
+          borderTopRightRadius: 8,
+          transform: [{translateX: -2}],
+        }}
+      />
+      <View
+        style={{
+          position: 'absolute',
+          right: 0,
+          top: 6,
+          width: 0,
+          height: 0,
+          borderTopWidth: 5,
+          borderLeftWidth: 6,
+          borderStyle: 'solid',
+          backgroundColor: 'transparent',
+          borderTopColor: c,
+          borderLeftColor: 'transparent',
+        }}
+      />
+    </View>
+  );
+}
+
+function TextIcon() {
+  return (
+    <View style={iconStyles.wrap}>
+      <Text style={{fontSize: 18, fontWeight: '900', color: '#FFFFFF'}}>T</Text>
+    </View>
+  );
+}
+
+function ImageIcon() {
+  return (
+    <View style={iconStyles.wrap}>
+      <View
+        style={{
+          width: 18,
+          height: 14,
+          borderWidth: 1.5,
+          borderColor: '#FFFFFF',
+          borderRadius: 2,
+          overflow: 'hidden',
+          alignItems: 'center',
+          justifyContent: 'flex-end',
+        }}>
+        <View
+          style={{
+            position: 'absolute',
+            top: 2,
+            right: 2,
+            width: 3,
+            height: 3,
+            borderRadius: 1.5,
+            backgroundColor: '#FFFFFF',
+          }}
+        />
+        <View
+          style={{
+            width: 0,
+            height: 0,
+            borderLeftWidth: 5,
+            borderRightWidth: 5,
+            borderBottomWidth: 6,
+            borderStyle: 'solid',
+            borderLeftColor: 'transparent',
+            borderRightColor: 'transparent',
+            borderBottomColor: '#FFFFFF',
+            marginBottom: 0,
+          }}
+        />
+      </View>
+    </View>
+  );
+}
+
+function BgIcon() {
+  return (
+    <View style={iconStyles.wrap}>
+      <View
+        style={{
+          width: 16,
+          height: 16,
+          borderRadius: 8,
+          overflow: 'hidden',
+          flexDirection: 'row',
+        }}>
+        <View style={{flex: 1, backgroundColor: saffron}} />
+        <View style={{flex: 1, backgroundColor: '#143B5E'}} />
+      </View>
+    </View>
+  );
+}
+
+function DeleteIcon({muted}: {muted?: boolean}) {
+  const c = muted ? mutedOnDark : '#FFFFFF';
+  return (
+    <View style={iconStyles.wrap}>
+      <View
+        style={{
+          width: 14,
+          height: 2,
+          backgroundColor: c,
+          transform: [{rotate: '45deg'}],
+          position: 'absolute',
+        }}
+      />
+      <View
+        style={{
+          width: 14,
+          height: 2,
+          backgroundColor: c,
+          transform: [{rotate: '-45deg'}],
+          position: 'absolute',
+        }}
+      />
+    </View>
+  );
+}
+
+function ShareIcon() {
+  return (
+    <View style={iconStyles.wrap}>
+      <View
+        style={{
+          width: 14,
+          height: 2,
+          backgroundColor: '#FFFFFF',
+          transform: [{rotate: '-45deg'}],
+          position: 'absolute',
+        }}
+      />
+      <View
+        style={{
+          position: 'absolute',
+          top: 2,
+          right: 2,
+          width: 0,
+          height: 0,
+          borderTopWidth: 0,
+          borderBottomWidth: 6,
+          borderLeftWidth: 6,
+          borderRightWidth: 0,
+          borderStyle: 'solid',
+          borderBottomColor: '#FFFFFF',
+          borderLeftColor: 'transparent',
+        }}
+      />
+    </View>
+  );
+}
+
+const iconStyles = StyleSheet.create({
+  wrap: {
+    width: 22,
+    height: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+});
+
+/* ───── Screen ───── */
+export default function EditorScreen({route, navigation}: Props) {
   const webViewRef = useRef<WebView>(null);
   const profile = useUserStore(s => s.profile);
   const [ready, setReady] = useState(false);
@@ -73,19 +306,37 @@ export default function EditorScreen({route}: Props) {
   const [canRedo, setCanRedo] = useState(false);
   const [hasSelection, setHasSelection] = useState(false);
   const [templateLoaded, setTemplateLoaded] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [bgPanelOpen, setBgPanelOpen] = useState(false);
   const pendingTemplate = useRef(route.params?.template || null);
 
   const cdnBase = Config.CLOUDFRONT_DOMAIN || '';
   const editorHtml = getEditorHtml(cdnBase);
 
-  const send = useCallback(
-    (message: object) => {
-      webViewRef.current?.postMessage(JSON.stringify(message));
-    },
-    [],
-  );
+  // BG panel slide animation
+  const bgPanelY = useSharedValue(80);
+  const bgPanelOpacity = useSharedValue(0);
 
-  // When the WebView is ready, load pending template if any
+  useEffect(() => {
+    if (bgPanelOpen) {
+      bgPanelY.value = withSpring(0, {damping: 18, stiffness: 160});
+      bgPanelOpacity.value = withTiming(1, {duration: 200});
+    } else {
+      bgPanelY.value = withTiming(80, {duration: 200});
+      bgPanelOpacity.value = withTiming(0, {duration: 160});
+    }
+  }, [bgPanelOpen, bgPanelY, bgPanelOpacity]);
+
+  const bgPanelStyle = useAnimatedStyle(() => ({
+    transform: [{translateY: bgPanelY.value}],
+    opacity: bgPanelOpacity.value,
+  }));
+
+  const send = useCallback((message: object) => {
+    webViewRef.current?.postMessage(JSON.stringify(message));
+  }, []);
+
+  // Load template once canvas is ready
   useEffect(() => {
     if (ready && pendingTemplate.current) {
       send({
@@ -98,7 +349,7 @@ export default function EditorScreen({route}: Props) {
     }
   }, [ready, send, profile, cdnBase]);
 
-  // Watch for new template from navigation params
+  // React to new template from nav
   useEffect(() => {
     const tmpl = route.params?.template;
     if (tmpl && ready) {
@@ -114,6 +365,18 @@ export default function EditorScreen({route}: Props) {
     }
   }, [route.params?.template, ready, send, profile, cdnBase]);
 
+  function haptic(kind: 'light' | 'medium' | 'success') {
+    const map = {
+      light: 'impactLight',
+      medium: 'impactMedium',
+      success: 'notificationSuccess',
+    } as const;
+    ReactNativeHapticFeedback.trigger(map[kind], {
+      enableVibrateFallback: true,
+      ignoreAndroidSystemSettings: false,
+    });
+  }
+
   function handleMessage(event: WebViewMessageEvent) {
     try {
       const msg = JSON.parse(event.nativeEvent.data);
@@ -123,10 +386,7 @@ export default function EditorScreen({route}: Props) {
           break;
         case 'TEMPLATE_LOADED':
           setTemplateLoaded(true);
-          ReactNativeHapticFeedback.trigger('impactLight', {
-            enableVibrateFallback: true,
-            ignoreAndroidSystemSettings: false,
-          });
+          haptic('light');
           break;
         case 'STATE_CHANGED':
           setCanUndo(msg.canUndo);
@@ -147,31 +407,24 @@ export default function EditorScreen({route}: Props) {
 
   async function handleExportResult(base64Data: string) {
     try {
-      // Strip data URI prefix
       const base64 = base64Data.replace(/^data:image\/\w+;base64,/, '');
       const filename = `Poster_${Date.now()}.png`;
 
-      // Write to cache dir first (no permissions needed)
       const cachePath = `${RNFS.CachesDirectoryPath}/${filename}`;
       await RNFS.writeFile(cachePath, base64, 'base64');
 
-      ReactNativeHapticFeedback.trigger('notificationSuccess', {
-        enableVibrateFallback: true,
-        ignoreAndroidSystemSettings: false,
-      });
+      haptic('success');
 
-      // Copy to Downloads on Android (uses MediaStore on API 29+, no permission needed)
       if (Platform.OS === 'android') {
         try {
           const downloadPath = `${RNFS.DownloadDirectoryPath}/${filename}`;
           await RNFS.copyFile(cachePath, downloadPath);
-        } catch {
-          // API 29+ may block direct Downloads write — file is still in cache for sharing
-        }
+        } catch {}
       }
 
-      Alert.alert('Saved', 'Image ready', [
-        {text: 'OK'},
+      setExporting(false);
+      Alert.alert('Saved', 'Your poster is ready', [
+        {text: 'Done'},
         {
           text: 'Share',
           onPress: () => {
@@ -182,100 +435,203 @@ export default function EditorScreen({route}: Props) {
           },
         },
       ]);
-    } catch (err: unknown) {
+    } catch {
+      setExporting(false);
       Alert.alert('Error', 'Failed to save image');
     }
   }
 
+  /* ── Tool actions ── */
+  function doUndo() {
+    if (!canUndo) return;
+    haptic('light');
+    send({type: 'UNDO'});
+  }
+  function doRedo() {
+    if (!canRedo) return;
+    haptic('light');
+    send({type: 'REDO'});
+  }
+  function doAddText() {
+    haptic('medium');
+    send({type: 'ADD_TEXT', text: 'Tap to edit', size: 40, color: '#FFFFFF'});
+  }
+  async function doAddImage() {
+    haptic('medium');
+    try {
+      const img = await ImageCropPicker.openPicker({
+        width: 800,
+        height: 800,
+        cropping: true,
+        mediaType: 'photo',
+        compressImageQuality: 0.9,
+        hideBottomControls: true,
+        cropperChooseText: 'Add',
+        cropperCancelText: 'Cancel',
+      });
+      const uri = Platform.OS === 'ios' ? img.path : img.path;
+      send({type: 'ADD_IMAGE', src: uri});
+    } catch {
+      // User cancelled picker — silent
+    }
+  }
+  function doToggleBg() {
+    haptic('light');
+    setBgPanelOpen(v => !v);
+  }
+  function doSetBg(color: string) {
+    haptic('light');
+    send({type: 'SET_BG_COLOR', color});
+    setBgPanelOpen(false);
+  }
+  function doDelete() {
+    if (!hasSelection) return;
+    haptic('medium');
+    send({type: 'DELETE_SELECTED'});
+  }
+  function doShare() {
+    if (!templateLoaded) return;
+    haptic('medium');
+    setExporting(true);
+    send({type: 'EXPORT', format: 'png', quality: 1});
+  }
+  function doSave() {
+    if (!templateLoaded || exporting) return;
+    haptic('medium');
+    setExporting(true);
+    send({type: 'EXPORT', format: 'png', quality: 1});
+  }
+  function doBack() {
+    haptic('light');
+    navigation.goBack();
+  }
+
   return (
     <View style={styles.screen}>
-      <StatusBar
-        barStyle="light-content"
-        backgroundColor={colors.surfaceDark}
-      />
+      <StatusBar barStyle="light-content" backgroundColor={canvasBg} />
 
-      {/* Canvas WebView */}
-      <WebView
-        ref={webViewRef}
-        source={{html: editorHtml}}
-        style={styles.webview}
-        onMessage={handleMessage}
-        javaScriptEnabled
-        domStorageEnabled
-        scrollEnabled={false}
-        bounces={false}
-        originWhitelist={['*']}
-        allowFileAccess
-        mixedContentMode="always"
-      />
+      {/* Header */}
+      <View style={styles.header}>
+        <Pressable
+          onPress={doBack}
+          style={({pressed}) => [
+            styles.headerBtn,
+            pressed && styles.headerBtnPressed,
+          ]}
+          hitSlop={10}>
+          <View style={styles.backArrow} />
+        </Pressable>
 
-      {/* Empty state overlay */}
-      {!templateLoaded && (
-        <View style={styles.emptyOverlay}>
-          <FadeIn delay={200}>
-            <Text style={styles.emptyTitle}>Canvas Editor</Text>
-            <Text style={styles.emptyDesc}>
-              Choose a template from Home{'\n'}and tap "Open in Editor"
-            </Text>
-          </FadeIn>
+        <View style={styles.headerTitleWrap}>
+          <Text style={styles.headerKicker}>EDITING</Text>
+          <Text style={styles.headerTitle} numberOfLines={1}>
+            {templateLoaded ? 'Your Poster' : 'Loading…'}
+          </Text>
         </View>
-      )}
 
-      {/* Floating Toolbar */}
-      <FadeIn delay={200} direction="up" distance={20}>
-        <View style={styles.toolbar}>
-          <View style={styles.toolbarInner}>
-            {/* History */}
-            <View style={styles.toolGroup}>
-              <ToolButton
-                label="Undo"
-                icon="↩"
-                onPress={() => send({type: 'UNDO'})}
-                disabled={!canUndo}
-              />
-              <ToolButton
-                label="Redo"
-                icon="↪"
-                onPress={() => send({type: 'REDO'})}
-                disabled={!canRedo}
-              />
-            </View>
+        <Pressable
+          onPress={doSave}
+          disabled={!templateLoaded || exporting}
+          style={({pressed}) => [
+            styles.saveBtn,
+            pressed && templateLoaded && styles.saveBtnPressed,
+            (!templateLoaded || exporting) && styles.saveBtnDisabled,
+          ]}>
+          {exporting ? (
+            <ActivityIndicator color="#FFFFFF" size="small" />
+          ) : (
+            <Text style={styles.saveBtnText}>Save</Text>
+          )}
+        </Pressable>
+      </View>
 
-            <View style={styles.toolDivider} />
+      {/* Canvas */}
+      <View style={styles.canvasArea}>
+        <WebView
+          ref={webViewRef}
+          source={{html: editorHtml}}
+          style={styles.webview}
+          onMessage={handleMessage}
+          javaScriptEnabled
+          domStorageEnabled
+          scrollEnabled={false}
+          bounces={false}
+          originWhitelist={['*']}
+          allowFileAccess
+          mixedContentMode="always"
+        />
 
-            {/* Creation Tools */}
-            <View style={styles.toolGroup}>
-              <ToolButton
-                label="Text"
-                icon="T"
-                onPress={() =>
-                  send({
-                    type: 'ADD_TEXT',
-                    text: 'Tap to edit',
-                    size: 40,
-                    color: '#FFFFFF',
-                  })
-                }
-              />
-              <ToolButton
-                label="Delete"
-                icon="✕"
-                onPress={() => send({type: 'DELETE_SELECTED'})}
-                disabled={!hasSelection}
-              />
-            </View>
-
-            <View style={styles.toolDivider} />
-
-            {/* Export */}
-            <ToolButton
-              label="Export"
-              icon="↗"
-              onPress={() => send({type: 'EXPORT', format: 'png', quality: 1})}
-              accent
-              disabled={!templateLoaded}
-            />
+        {!templateLoaded && (
+          <View style={styles.loadingOverlay} pointerEvents="none">
+            <ActivityIndicator color={saffron} size="large" />
+            <Text style={styles.loadingText}>Preparing canvas…</Text>
           </View>
+        )}
+      </View>
+
+      {/* BG swatch panel — animates up from below toolbar */}
+      <Animated.View
+        style={[styles.bgPanel, bgPanelStyle]}
+        pointerEvents={bgPanelOpen ? 'auto' : 'none'}>
+        <Text style={styles.bgPanelHint}>Background colour</Text>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.bgSwatchRow}>
+          {BG_COLORS.map(c => (
+            <Pressable
+              key={c}
+              onPress={() => doSetBg(c)}
+              style={({pressed}) => [
+                styles.swatch,
+                {backgroundColor: c},
+                pressed && {opacity: 0.75},
+              ]}>
+              {c === '#FFFFFF' || c === '#FAF5EC' ? (
+                <View style={styles.swatchRing} />
+              ) : null}
+            </Pressable>
+          ))}
+        </ScrollView>
+      </Animated.View>
+
+      {/* Toolbar */}
+      <FadeIn delay={100} direction="up" distance={20}>
+        <View style={styles.toolbar}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.toolbarRow}>
+            <Tool
+              icon={<UndoIcon muted={!canUndo} />}
+              label="Undo"
+              onPress={doUndo}
+              disabled={!canUndo}
+            />
+            <Tool
+              icon={<RedoIcon muted={!canRedo} />}
+              label="Redo"
+              onPress={doRedo}
+              disabled={!canRedo}
+            />
+            <View style={styles.toolSep} />
+            <Tool icon={<TextIcon />} label="Text" onPress={doAddText} />
+            <Tool icon={<ImageIcon />} label="Image" onPress={doAddImage} />
+            <Tool
+              icon={<BgIcon />}
+              label="BG"
+              onPress={doToggleBg}
+              active={bgPanelOpen}
+            />
+            <Tool
+              icon={<DeleteIcon muted={!hasSelection} />}
+              label="Delete"
+              onPress={doDelete}
+              disabled={!hasSelection}
+            />
+            <View style={styles.toolSep} />
+            <Tool icon={<ShareIcon />} label="Share" onPress={doShare} />
+          </ScrollView>
         </View>
       </FadeIn>
     </View>
@@ -285,90 +641,192 @@ export default function EditorScreen({route}: Props) {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: colors.surfaceDark,
+    backgroundColor: canvasBg,
+  },
+
+  // Header
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingTop: 18,
+    paddingBottom: 12,
+    paddingHorizontal: 16,
+    gap: 12,
+    backgroundColor: canvasBg,
+    borderBottomWidth: 1,
+    borderBottomColor: hairDark,
+  },
+  headerBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: hairDarkStrong,
+    backgroundColor: surfaceHigh,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerBtnPressed: {
+    backgroundColor: '#2A211B',
+  },
+  backArrow: {
+    width: 9,
+    height: 9,
+    borderLeftWidth: 2,
+    borderBottomWidth: 2,
+    borderColor: '#FFFFFF',
+    transform: [{rotate: '45deg'}],
+    marginLeft: 4,
+  },
+  headerTitleWrap: {
+    flex: 1,
+  },
+  headerKicker: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: saffron,
+    letterSpacing: 1.8,
+  },
+  headerTitle: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: -0.3,
+    marginTop: 2,
+  },
+  saveBtn: {
+    backgroundColor: saffron,
+    paddingHorizontal: 20,
+    height: 40,
+    borderRadius: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 82,
+  },
+  saveBtnPressed: {
+    backgroundColor: saffronDeep,
+  },
+  saveBtnDisabled: {
+    opacity: 0.5,
+  },
+  saveBtnText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: 0.4,
+  },
+
+  // Canvas
+  canvasArea: {
+    flex: 1,
+    backgroundColor: canvasBg,
   },
   webview: {
     flex: 1,
-    backgroundColor: colors.surfaceDark,
+    backgroundColor: canvasBg,
+  },
+  loadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 14,
+    backgroundColor: canvasBg,
+  },
+  loadingText: {
+    color: ashOnDark,
+    fontSize: 13,
+    fontWeight: '600',
+    letterSpacing: 0.4,
   },
 
-  // Empty overlay
-  emptyOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    justifyContent: 'center',
+  // Background swatch panel
+  bgPanel: {
+    backgroundColor: surfaceHigh,
+    paddingTop: 14,
+    paddingBottom: 12,
+    borderTopWidth: 1,
+    borderTopColor: hairDark,
+  },
+  bgPanelHint: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: ashOnDark,
+    letterSpacing: 1.8,
+    paddingHorizontal: 20,
+    marginBottom: 10,
+  },
+  bgSwatchRow: {
+    paddingHorizontal: 20,
+    gap: 10,
+  },
+  swatch: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     alignItems: 'center',
-    backgroundColor: colors.surfaceDark,
+    justifyContent: 'center',
   },
-  emptyTitle: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: 'rgba(255,255,255,0.5)',
-    textAlign: 'center',
-    marginBottom: 8,
-  },
-  emptyDesc: {
-    fontSize: 14,
-    lineHeight: 22,
-    color: 'rgba(255,255,255,0.35)',
-    textAlign: 'center',
+  swatchRing: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: hairDarkStrong,
   },
 
   // Toolbar
   toolbar: {
-    paddingHorizontal: spacing.md,
-    paddingBottom: spacing['3xl'],
-    paddingTop: spacing.sm,
+    backgroundColor: surfaceHigh,
+    paddingVertical: 10,
+    paddingBottom: Platform.OS === 'ios' ? 24 : 14,
+    borderTopWidth: 1,
+    borderTopColor: hairDark,
   },
-  toolbarInner: {
-    flexDirection: 'row',
+  toolbarRow: {
     alignItems: 'center',
-    backgroundColor: colors.surfaceDarkElevated,
-    borderRadius: radii.xl,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.06)',
-    ...shadows.lg,
+    paddingHorizontal: 14,
+    gap: 4,
   },
-  toolGroup: {
-    flexDirection: 'row',
-    gap: spacing.xxs,
-  },
-  toolDivider: {
-    width: 1,
-    height: 28,
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    marginHorizontal: spacing.sm,
-  },
-  toolButton: {
+  tool: {
+    width: 64,
+    paddingVertical: 8,
+    paddingHorizontal: 6,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
-    borderRadius: radii.md,
+    borderRadius: 10,
+    gap: 4,
   },
-  toolButtonAccent: {
-    backgroundColor: colors.primary,
+  toolPressed: {
+    backgroundColor: 'rgba(255,255,255,0.06)',
   },
-  toolButtonDisabled: {
-    opacity: 0.3,
+  toolActive: {
+    backgroundColor: 'rgba(232, 93, 47, 0.18)',
+  },
+  toolDisabled: {
+    opacity: 0.4,
   },
   toolIcon: {
-    fontSize: 18,
-    color: 'rgba(255,255,255,0.7)',
-    marginBottom: 2,
-  },
-  toolIconAccent: {
-    color: colors.textOnPrimary,
+    width: 22,
+    height: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   toolLabel: {
-    color: 'rgba(255,255,255,0.5)',
     fontSize: 10,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    letterSpacing: 0.6,
   },
-  toolLabelAccent: {
-    color: colors.textOnPrimary,
+  toolLabelActive: {
+    color: saffron,
   },
   toolLabelDisabled: {
-    color: 'rgba(255,255,255,0.2)',
+    color: mutedOnDark,
+  },
+  toolSep: {
+    width: 1,
+    height: 28,
+    backgroundColor: hairDark,
+    marginHorizontal: 8,
   },
 });

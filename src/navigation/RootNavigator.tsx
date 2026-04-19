@@ -2,6 +2,7 @@ import React from 'react';
 import {View, Text, StyleSheet, Platform} from 'react-native';
 import {createNativeStackNavigator} from '@react-navigation/native-stack';
 import {createBottomTabNavigator} from '@react-navigation/bottom-tabs';
+import {getFocusedRouteNameFromRoute} from '@react-navigation/native';
 import {useAuthStore} from '../store/authStore';
 import {useUserStore} from '../store/userStore';
 
@@ -92,13 +93,20 @@ function MainNavigator() {
       <Tab.Screen
         name="Home"
         component={HomeNavigator}
-        options={{
-          tabBarIcon: ({focused}) => (
-            <HomeIcon color={focused ? saffron : ashmute} size={22} />
-          ),
-          tabBarLabel: ({focused}) => (
-            <TabLabel label="HOME" focused={focused} />
-          ),
+        options={({route}) => {
+          const focused = getFocusedRouteNameFromRoute(route) ?? 'HomeScreen';
+          const hideTabBar = focused === 'Editor';
+          return {
+            tabBarStyle: hideTabBar
+              ? {display: 'none'}
+              : styles.tabBar,
+            tabBarIcon: ({focused: f}) => (
+              <HomeIcon color={f ? saffron : ashmute} size={22} />
+            ),
+            tabBarLabel: ({focused: f}) => (
+              <TabLabel label="HOME" focused={f} />
+            ),
+          };
         }}
       />
       <Tab.Screen
