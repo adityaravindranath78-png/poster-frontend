@@ -2,7 +2,6 @@ import React, {useEffect, useCallback, useState} from 'react';
 import {
   View,
   Text,
-  FlatList,
   StyleSheet,
   RefreshControl,
   Dimensions,
@@ -38,7 +37,6 @@ const saffronDeep = '#C4441C';
 const hair = 'rgba(26, 21, 18, 0.08)';
 const hairStrong = 'rgba(26, 21, 18, 0.16)';
 const ashhalf = 'rgba(26, 21, 18, 0.58)';
-const ashmute = 'rgba(26, 21, 18, 0.42)';
 
 const {width: SCREEN_WIDTH} = Dimensions.get('window');
 const SIDE_PAD = 20;
@@ -56,31 +54,48 @@ function greetingLine(): string {
   return 'GOOD NIGHT';
 }
 
-/* ─── Category chip ─────────────────────────────── */
-type ChipProps = {
+/* ─── Category card ─────────────────────────────── */
+type CatCardProps = {
   label: string;
   hi: string;
   color: string;
+  width: number;
+  height: number;
   onPress: () => void;
   index: number;
 };
 
-function CategoryChip({label, hi, color, onPress, index}: ChipProps) {
+function CategoryCard({
+  label,
+  hi,
+  color,
+  width,
+  height,
+  onPress,
+  index,
+}: CatCardProps) {
   return (
-    <FadeIn delay={40 + index * 20} distance={8}>
+    <FadeIn delay={60 + index * 30} distance={12}>
       <Pressable
         onPress={onPress}
         style={({pressed}) => [
-          styles.chip,
-          pressed && styles.chipPressed,
+          styles.catCard,
+          {width, height, backgroundColor: color},
+          pressed && styles.catCardPressed,
         ]}>
-        <View style={[styles.chipDot, {backgroundColor: color}]} />
-        <Text style={styles.chipLabel} numberOfLines={1}>
-          {label}
-        </Text>
-        <Text style={styles.chipHi} numberOfLines={1}>
-          {hi}
-        </Text>
+        <LinearGradient
+          colors={[color, '#1A0A05']}
+          style={StyleSheet.absoluteFillObject}
+          pointerEvents="none"
+        />
+        <View style={styles.catLabelWrap}>
+          <Text style={styles.catLabel} numberOfLines={1}>
+            {label}
+          </Text>
+          <Text style={styles.catHi} numberOfLines={1}>
+            {hi}
+          </Text>
+        </View>
       </Pressable>
     </FadeIn>
   );
@@ -171,9 +186,7 @@ export default function HomeScreen({navigation}: Props) {
   const rootNav = useNavigation<any>();
   const {
     dailyTemplates,
-    trendingTemplates,
     selectedLanguage,
-    isLoading,
     setDailyTemplates,
     setTrendingTemplates,
     setLoading,
@@ -303,27 +316,10 @@ export default function HomeScreen({navigation}: Props) {
           </View>
         </FadeIn>
 
-        {/* Browse by — wrapping grid, all visible */}
-        <FadeIn delay={80} distance={10}>
-          <SectionHeader kicker="BROWSE BY" title="Categories" />
-        </FadeIn>
-        <View style={styles.chipGrid}>
-          {CATEGORIES.map((item, index) => (
-            <CategoryChip
-              key={item.id}
-              label={item.label}
-              hi={item.hi}
-              color={item.color}
-              index={index}
-              onPress={() => handleCategoryPress(item.id, item.label)}
-            />
-          ))}
-        </View>
-
         {/* Today's Specials */}
         {dailyTemplates.length > 0 && (
           <>
-            <FadeIn delay={160} distance={10}>
+            <FadeIn delay={80} distance={10}>
               <SectionHeader kicker="TODAY" title="Daily specials" />
             </FadeIn>
             <ScrollView
@@ -344,40 +340,24 @@ export default function HomeScreen({navigation}: Props) {
           </>
         )}
 
-        {/* Trending */}
-        <FadeIn delay={240} distance={10}>
-          <SectionHeader kicker="POPULAR" title="Trending now" />
+        {/* Browse by Category — vertical grid of big category cards */}
+        <FadeIn delay={160} distance={10}>
+          <SectionHeader kicker="BROWSE BY" title="Category" />
         </FadeIn>
-
-        {isLoading && !refreshing ? (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.dailyScroll}>
-            {[0, 1, 2, 3].map(i => (
-              <View
-                key={i}
-                style={[styles.cardSkeleton, {width: 180, height: 180 * 1.3}]}
-              />
-            ))}
-          </ScrollView>
-        ) : (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.dailyScroll}>
-            {trendingTemplates.map((t, i) => (
-              <TemplateCard
-                key={t.id}
-                template={t}
-                onPress={() => handleTemplatePress(t)}
-                width={180}
-                height={180 * 1.3}
-                index={i}
-              />
-            ))}
-          </ScrollView>
-        )}
+        <View style={styles.catGrid}>
+          {CATEGORIES.map((cat, i) => (
+            <CategoryCard
+              key={cat.id}
+              label={cat.label}
+              hi={cat.hi}
+              color={cat.color}
+              width={CARD_W}
+              height={CARD_W * 1.3}
+              index={i}
+              onPress={() => handleCategoryPress(cat.id, cat.label)}
+            />
+          ))}
+        </View>
 
         <View style={styles.bottomSpacer} />
       </Animated.ScrollView>
@@ -521,64 +501,48 @@ const styles = StyleSheet.create({
     letterSpacing: 0.3,
   },
 
-  // Chip — wrapping grid, all 12 visible
-  chipGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    paddingHorizontal: SIDE_PAD,
-    paddingVertical: 4,
-    gap: 8,
-  },
-  chip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: hair,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 100,
-    shadowColor: ink,
-    shadowOffset: {width: 0, height: 1},
-    shadowOpacity: 0.04,
-    shadowRadius: 2,
-    elevation: 1,
-  },
-  chipPressed: {
-    backgroundColor: '#F2E9D7',
-  },
-  chipDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 3.5,
-    marginRight: 7,
-  },
-  chipLabel: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: ink,
-    letterSpacing: 0.1,
-  },
-  chipHi: {
-    fontSize: 11,
-    fontWeight: '500',
-    color: ashmute,
-    letterSpacing: 0.2,
-    marginLeft: 6,
-  },
-
   // Daily horizontal scroll
   dailyScroll: {
     paddingHorizontal: SIDE_PAD,
     gap: GRID_GAP,
   },
 
-  // Grid
-  grid: {
+  // Category card grid — vertical 2-col
+  catGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     paddingHorizontal: SIDE_PAD,
     gap: GRID_GAP,
+  },
+  catCard: {
+    borderRadius: 4,
+    overflow: 'hidden',
+    justifyContent: 'flex-end',
+    padding: 14,
+    shadowColor: ink,
+    shadowOffset: {width: 0, height: 2},
+    shadowOpacity: 0.12,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  catCardPressed: {
+    opacity: 0.88,
+  },
+  catLabelWrap: {
+    position: 'relative',
+  },
+  catLabel: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: -0.2,
+  },
+  catHi: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: 'rgba(255, 255, 255, 0.85)',
+    marginTop: 2,
+    letterSpacing: 0.2,
   },
 
   // Card
