@@ -1,12 +1,17 @@
 import React, {useEffect, useState, useCallback} from 'react';
 import {
   View,
+  Text,
   FlatList,
   StyleSheet,
   RefreshControl,
   ActivityIndicator,
   Dimensions,
+  StatusBar,
+  Pressable,
 } from 'react-native';
+import LinearGradient from 'react-native-linear-gradient';
+import ReactNativeHapticFeedback from 'react-native-haptic-feedback';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {HomeStackParamList} from '../../navigation/types';
 import {useTemplateStore} from '../../store/templateStore';
@@ -16,24 +21,37 @@ import TemplateCard from '../../components/TemplateCard';
 import FadeIn from '../../components/FadeIn';
 import {SkeletonCard} from '../../components/SkeletonLoader';
 import ErrorState from '../../components/ErrorState';
-import {colors, spacing, layout} from '../../theme';
+import {CATEGORIES} from '../../utils/constants';
+
+// Editorial palette — matches Home / Login / Preview
+const ink = '#1A1512';
+const paper = '#FAF5EC';
+const paperDeep = '#F2E9D7';
+const saffron = '#E85D2F';
+const hair = 'rgba(26, 21, 18, 0.08)';
+const hairStrong = 'rgba(26, 21, 18, 0.18)';
+const ashhalf = 'rgba(26, 21, 18, 0.58)';
 
 const {width: SCREEN_WIDTH} = Dimensions.get('window');
-const GRID_GAP = layout.cardGap;
-const GRID_PADDING = layout.screenPaddingH;
-const CARD_WIDTH = (SCREEN_WIDTH - GRID_PADDING * 2 - GRID_GAP) / 2;
+const SIDE_PAD = 20;
+const GRID_GAP = 12;
+const CARD_WIDTH = (SCREEN_WIDTH - SIDE_PAD * 2 - GRID_GAP) / 2;
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'Category'>;
 
 export default function CategoryScreen({route, navigation}: Props) {
-  const {categoryId} = route.params;
-  const selectedLanguage = useTemplateStore((s) => s.selectedLanguage);
+  const {categoryId, categoryLabel} = route.params;
+  const selectedLanguage = useTemplateStore(s => s.selectedLanguage);
   const [templates, setTemplates] = useState<TemplateMeta[]>([]);
   const [nextKey, setNextKey] = useState<string | undefined>();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const categoryMeta = CATEGORIES.find(c => c.id === categoryId);
+  const categoryColor = categoryMeta?.color ?? saffron;
+  const categoryHi = categoryMeta?.hi;
 
   const loadTemplates = useCallback(async () => {
     setLoading(true);
@@ -73,7 +91,7 @@ export default function CategoryScreen({route, navigation}: Props) {
         limit: 20,
         nextKey,
       });
-      setTemplates((prev) => [...prev, ...res.data]);
+      setTemplates(prev => [...prev, ...res.data]);
       setNextKey(res.nextKey);
     } catch {
       // Silently fail on pagination
@@ -82,15 +100,86 @@ export default function CategoryScreen({route, navigation}: Props) {
     }
   }
 
+  function handleBack() {
+    ReactNativeHapticFeedback.trigger('impactLight', {
+      enableVibrateFallback: true,
+      ignoreAndroidSystemSettings: false,
+    });
+    navigation.goBack();
+  }
+
+  function Header() {
+    return (
+      <FadeIn delay={0} distance={6}>
+        <View style={styles.header}>
+          <Pressable
+            onPress={handleBack}
+            style={({pressed}) => [
+              styles.backBtn,
+              pressed && styles.backBtnPressed,
+            ]}
+            hitSlop={10}>
+            <View style={styles.backArrow} />
+          </Pressable>
+          <View style={styles.headerMeta}>
+            <View style={styles.kickerRow}>
+              <View
+                style={[styles.kickerDot, {backgroundColor: categoryColor}]}
+              />
+              <Text style={styles.kicker} numberOfLines={1}>
+                BROWSE
+              </Text>
+              {templates.length > 0 && (
+                <>
+                  <View style={styles.kickerSep} />
+                  <Text style={styles.kicker}>
+                    {templates.length} {templates.length === 1 ? 'DESIGN' : 'DESIGNS'}
+                  </Text>
+                </>
+              )}
+            </View>
+            <Text style={styles.headerTitle} numberOfLines={1}>
+              {categoryLabel}
+            </Text>
+            {!!categoryHi && (
+              <Text style={styles.headerHi} numberOfLines={1}>
+                {categoryHi}
+              </Text>
+            )}
+          </View>
+        </View>
+      </FadeIn>
+    );
+  }
+
   if (error) {
-    return <ErrorState message={error} onRetry={loadTemplates} />;
+    return (
+      <View style={styles.container}>
+        <StatusBar barStyle="dark-content" backgroundColor={paper} />
+        <LinearGradient
+          colors={[paper, paperDeep]}
+          style={StyleSheet.absoluteFillObject}
+          pointerEvents="none"
+        />
+        <Header />
+        <ErrorState message={error} onRetry={loadTemplates} />
+      </View>
+    );
   }
 
   return (
     <View style={styles.container}>
+      <StatusBar barStyle="dark-content" backgroundColor={paper} />
+      <LinearGradient
+        colors={[paper, paperDeep]}
+        style={StyleSheet.absoluteFillObject}
+        pointerEvents="none"
+      />
+      <Header />
+
       {loading && !refreshing ? (
         <View style={styles.skeletonGrid}>
-          {Array.from({length: 8}).map((_, i) => (
+          {Array.from({length: 6}).map((_, i) => (
             <FadeIn key={i} delay={i * 40} direction="up" distance={8}>
               <SkeletonCard style={styles.skeletonCard} />
             </FadeIn>
@@ -99,7 +188,7 @@ export default function CategoryScreen({route, navigation}: Props) {
       ) : (
         <FlatList
           data={templates}
-          keyExtractor={(item) => item.id}
+          keyExtractor={item => item.id}
           numColumns={2}
           renderItem={({item, index}) => (
             <FadeIn delay={index * 35} direction="up" distance={10}>
@@ -122,16 +211,14 @@ export default function CategoryScreen({route, navigation}: Props) {
             <RefreshControl
               refreshing={refreshing}
               onRefresh={handleRefresh}
-              tintColor={colors.primary}
-              colors={[colors.primary]}
+              tintColor={saffron}
+              colors={[saffron]}
+              progressBackgroundColor={paper}
             />
           }
           ListFooterComponent={
             loadingMore ? (
-              <ActivityIndicator
-                color={colors.primary}
-                style={styles.footerLoader}
-              />
+              <ActivityIndicator color={saffron} style={styles.footerLoader} />
             ) : null
           }
         />
@@ -143,10 +230,85 @@ export default function CategoryScreen({route, navigation}: Props) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.background,
+    backgroundColor: paper,
   },
+
+  // Header
+  header: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    paddingTop: 20,
+    paddingBottom: 16,
+    paddingHorizontal: SIDE_PAD,
+    gap: 14,
+  },
+  backBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: hairStrong,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 2,
+  },
+  backBtnPressed: {
+    backgroundColor: paperDeep,
+  },
+  backArrow: {
+    width: 9,
+    height: 9,
+    borderLeftWidth: 2,
+    borderBottomWidth: 2,
+    borderColor: ink,
+    transform: [{rotate: '45deg'}],
+    marginLeft: 4,
+  },
+  headerMeta: {
+    flex: 1,
+  },
+  kickerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  kickerDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  kicker: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: ink,
+    letterSpacing: 1.8,
+  },
+  kickerSep: {
+    width: 3,
+    height: 3,
+    borderRadius: 1.5,
+    backgroundColor: hairStrong,
+    marginHorizontal: 2,
+  },
+  headerTitle: {
+    fontSize: 26,
+    fontWeight: '800',
+    color: ink,
+    letterSpacing: -0.6,
+    marginTop: 4,
+  },
+  headerHi: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: ashhalf,
+    marginTop: 2,
+    letterSpacing: 0.2,
+  },
+
+  // Grid
   list: {
-    padding: GRID_PADDING,
+    paddingHorizontal: SIDE_PAD,
     paddingBottom: 100,
   },
   row: {
@@ -155,19 +317,19 @@ const styles = StyleSheet.create({
   },
   card: {
     width: CARD_WIDTH,
-    height: CARD_WIDTH,
+    height: CARD_WIDTH * 1.3,
   },
   skeletonGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    padding: GRID_PADDING,
+    paddingHorizontal: SIDE_PAD,
     gap: GRID_GAP,
   },
   skeletonCard: {
     width: CARD_WIDTH,
-    height: CARD_WIDTH,
+    height: CARD_WIDTH * 1.3,
   },
   footerLoader: {
-    paddingVertical: spacing.xl,
+    paddingVertical: 28,
   },
 });
