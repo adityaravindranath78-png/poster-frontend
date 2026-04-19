@@ -31,10 +31,19 @@ export async function uploadFileToS3(
   contentType: string,
 ): Promise<void> {
   const file = await fetch(fileUri);
+  if (!file.ok) {
+    throw new Error(`Could not read local file (${file.status})`);
+  }
   const blob = await file.blob();
-  await fetch(uploadUrl, {
+  const res = await fetch(uploadUrl, {
     method: 'PUT',
     headers: {'Content-Type': contentType},
     body: blob,
   });
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(
+      `Upload failed (${res.status}) ${body.slice(0, 120)}`.trim(),
+    );
+  }
 }

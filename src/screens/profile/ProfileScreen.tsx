@@ -18,7 +18,7 @@ import Animated, {
   withSpring,
 } from 'react-native-reanimated';
 import ReactNativeHapticFeedback from 'react-native-haptic-feedback';
-import {launchImageLibrary} from 'react-native-image-picker';
+import ImagePicker from 'react-native-image-crop-picker';
 import LinearGradient from 'react-native-linear-gradient';
 import {useRoute} from '@react-navigation/native';
 import {useUserStore} from '../../store/userStore';
@@ -116,6 +116,8 @@ export default function ProfileScreen() {
   const [name, setName] = useState(profile?.name || '');
   const [phone, setPhone] = useState(verifiedPhone);
   const [businessName, setBusinessName] = useState(profile?.businessName || '');
+  const [photoMime, setPhotoMime] = useState<string | undefined>();
+  const [logoMime, setLogoMime] = useState<string | undefined>();
   const phoneLocked = !!firebasePhone;
   const [photoUri, setPhotoUri] = useState(profile?.photoUrl || '');
   const [logoUri, setLogoUri] = useState(profile?.logoUrl || '');
@@ -131,22 +133,42 @@ export default function ProfileScreen() {
       enableVibrateFallback: true,
       ignoreAndroidSystemSettings: false,
     });
-    const result = await launchImageLibrary({
-      mediaType: 'photo',
-      maxWidth: 800,
-      maxHeight: 800,
-      quality: 0.8,
-    });
-    if (result.assets?.[0]?.uri) {
+    try {
+      const result = await ImagePicker.openPicker({
+        width: 512,
+        height: 512,
+        cropping: true,
+        cropperCircleOverlay: type === 'photo',
+        mediaType: 'photo',
+        compressImageQuality: 0.85,
+        compressImageMaxWidth: 1024,
+        compressImageMaxHeight: 1024,
+        cropperToolbarTitle:
+          type === 'photo' ? 'Crop your photo' : 'Crop your logo',
+        cropperActiveWidgetColor: '#E85D2F',
+        cropperStatusBarColor: '#FAF5EC',
+        cropperToolbarColor: '#FAF5EC',
+        cropperToolbarWidgetColor: '#1A1512',
+        forceJpg: type === 'photo',
+        includeBase64: false,
+      });
+
       if (type === 'photo') {
-        setPhotoUri(result.assets[0].uri);
+        setPhotoUri(result.path);
+        setPhotoMime(result.mime);
         avatarScale.value = withSpring(1.06, {damping: 10, stiffness: 300});
         setTimeout(() => {
           avatarScale.value = withSpring(1, {damping: 14, stiffness: 220});
         }, 200);
       } else {
-        setLogoUri(result.assets[0].uri);
+        setLogoUri(result.path);
+        setLogoMime(result.mime);
       }
+    } catch (err: unknown) {
+      const code = (err as {code?: string})?.code;
+      if (code === 'E_PICKER_CANCELLED') return;
+      const msg = err instanceof Error ? err.message : 'Could not pick image';
+      Alert.alert('Error', msg);
     }
   }
 
@@ -160,10 +182,10 @@ export default function ProfileScreen() {
       let photoUrl = profile?.photoUrl || '';
       let logoUrl = profile?.logoUrl || '';
       if (photoUri && photoUri !== profile?.photoUrl) {
-        photoUrl = await uploadProfilePhoto(photoUri);
+        photoUrl = await uploadProfilePhoto(photoUri, photoMime);
       }
       if (logoUri && logoUri !== profile?.logoUrl) {
-        logoUrl = await uploadLogo(logoUri);
+        logoUrl = await uploadLogo(logoUri, logoMime);
       }
       const updates = {
         name: name.trim(),
