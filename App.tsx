@@ -1,5 +1,5 @@
 import React, {useEffect} from 'react';
-import {StatusBar, View, Text, StyleSheet} from 'react-native';
+import {StatusBar, View, Text, StyleSheet, Platform} from 'react-native';
 import {SafeAreaProvider} from 'react-native-safe-area-context';
 import {GestureHandlerRootView} from 'react-native-gesture-handler';
 import {NavigationContainer} from '@react-navigation/native';
@@ -10,7 +10,9 @@ import Animated, {
   useAnimatedStyle,
   withRepeat,
   withTiming,
-  interpolate,
+  withSpring,
+  withDelay,
+  Easing,
 } from 'react-native-reanimated';
 import RootNavigator from './src/navigation/RootNavigator';
 import {useAuthStore} from './src/store/authStore';
@@ -20,29 +22,48 @@ import {
   setupForegroundNotifications,
   onTokenRefresh,
 } from './src/services/notifications';
-import {colors} from './src/theme';
 
 GoogleSignin.configure({
   webClientId: '1023925943500-2h3mfnk3ds4jg22vforn5tvjjlbe5c9c.apps.googleusercontent.com',
 });
 
+const SPLASH_BG = '#FAF5EC';
+const SPLASH_INK = '#1A1512';
+const SPLASH_SAFFRON = '#E85D2F';
+const SPLASH_MUTE = 'rgba(26, 21, 18, 0.55)';
+
 function SplashScreen() {
-  const pulse = useSharedValue(0);
+  const opacity = useSharedValue(0);
+  const scale = useSharedValue(0.96);
+  const dotPulse = useSharedValue(1);
 
   useEffect(() => {
-    pulse.value = withRepeat(withTiming(1, {duration: 1200}), -1, true);
-  }, []);
+    opacity.value = withTiming(1, {duration: 300, easing: Easing.out(Easing.quad)});
+    scale.value = withSpring(1, {damping: 18, stiffness: 140});
+    dotPulse.value = withDelay(
+      300,
+      withRepeat(withTiming(1.4, {duration: 900, easing: Easing.inOut(Easing.quad)}), -1, true),
+    );
+  }, [opacity, scale, dotPulse]);
 
-  const animatedStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(pulse.value, [0, 1], [0.6, 1]),
-    transform: [{scale: interpolate(pulse.value, [0, 1], [0.97, 1.03])}],
+  const containerStyle = useAnimatedStyle(() => ({
+    opacity: opacity.value,
+    transform: [{scale: scale.value}],
+  }));
+
+  const dotStyle = useAnimatedStyle(() => ({
+    transform: [{scale: dotPulse.value}],
   }));
 
   return (
     <View style={styles.splash}>
-      <StatusBar barStyle="dark-content" backgroundColor={colors.surface} />
-      <Animated.View style={[styles.splashBrand, animatedStyle]}>
-        <Text style={styles.splashMark}>P</Text>
+      <StatusBar barStyle="dark-content" backgroundColor={SPLASH_BG} />
+      <Animated.View style={[styles.splashInner, containerStyle]}>
+        <View style={styles.brandRow}>
+          <Animated.View style={[styles.brandDot, dotStyle]} />
+          <Text style={styles.brandMark}>POSTER</Text>
+        </View>
+        <Text style={styles.brandTagline}>for India.</Text>
       </Animated.View>
     </View>
   );
@@ -65,7 +86,18 @@ function App() {
         }
       }
     });
-    return unsubscribe;
+
+    // Safety net — force splash to dismiss after 4s if Firebase hangs
+    const splashTimeout = setTimeout(() => {
+      if (useAuthStore.getState().isLoading) {
+        useAuthStore.getState().setLoading(false);
+      }
+    }, 4000);
+
+    return () => {
+      unsubscribe();
+      clearTimeout(splashTimeout);
+    };
   }, []);
 
   // Foreground notification handler + token refresh
@@ -87,7 +119,7 @@ function App() {
   return (
     <GestureHandlerRootView style={styles.root}>
       <SafeAreaProvider>
-        <StatusBar barStyle="dark-content" backgroundColor={colors.surface} />
+        <StatusBar barStyle="dark-content" backgroundColor={SPLASH_BG} />
         <NavigationContainer>
           <RootNavigator />
         </NavigationContainer>
@@ -104,26 +136,36 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: colors.surface,
+    backgroundColor: SPLASH_BG,
   },
-  splashBrand: {
-    width: 88,
-    height: 88,
-    borderRadius: 22,
-    backgroundColor: colors.primary,
+  splashInner: {
     alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: colors.primary,
-    shadowOffset: {width: 0, height: 8},
-    shadowOpacity: 0.35,
-    shadowRadius: 20,
-    elevation: 12,
   },
-  splashMark: {
-    fontSize: 44,
-    fontWeight: '900',
-    color: colors.textOnPrimary,
-    marginTop: -2,
+  brandRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  brandDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: SPLASH_SAFFRON,
+    marginRight: 14,
+  },
+  brandMark: {
+    fontSize: 28,
+    fontWeight: '800',
+    color: SPLASH_INK,
+    letterSpacing: 4,
+  },
+  brandTagline: {
+    fontSize: 14,
+    fontStyle: 'italic',
+    color: SPLASH_MUTE,
+    fontWeight: '400',
+    marginLeft: 24,
+    letterSpacing: 0.3,
   },
 });
 
