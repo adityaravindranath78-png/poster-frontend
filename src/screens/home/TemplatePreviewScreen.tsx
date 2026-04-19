@@ -9,6 +9,9 @@ import {
   Platform,
   Dimensions,
   StatusBar,
+  Pressable,
+  Image,
+  ActivityIndicator,
 } from 'react-native';
 import Animated, {
   useSharedValue,
@@ -16,6 +19,7 @@ import Animated, {
   withSpring,
   withTiming,
 } from 'react-native-reanimated';
+import LinearGradient from 'react-native-linear-gradient';
 import ReactNativeHapticFeedback from 'react-native-haptic-feedback';
 import RNFS from 'react-native-fs';
 import {WebView, WebViewMessageEvent} from 'react-native-webview';
@@ -27,23 +31,23 @@ import {useSubscriptionStore} from '../../store/subscriptionStore';
 import {getTemplateSchema} from '../../services/templates';
 import {Template} from '../../types/template';
 import {getEditorHtml} from '../../canvas/editorHtml';
-import Button from '../../components/Button';
 import FadeIn from '../../components/FadeIn';
-import SkeletonLoader from '../../components/SkeletonLoader';
 import WatermarkOverlay from '../../components/WatermarkOverlay';
-import {
-  colors,
-  typography,
-  spacing,
-  radii,
-  shadows,
-  layout,
-  springs,
-  timing,
-} from '../../theme';
+import {CATEGORIES} from '../../utils/constants';
 
-const {width: SCREEN_WIDTH} = Dimensions.get('window');
-const IMAGE_SIZE = SCREEN_WIDTH - layout.screenPaddingH * 2;
+// Editorial palette — matches Home / Login / Profile
+const ink = '#1A1512';
+const paper = '#FAF5EC';
+const paperDeep = '#F2E9D7';
+const saffron = '#E85D2F';
+const saffronDeep = '#C4441C';
+const hair = 'rgba(26, 21, 18, 0.08)';
+const hairStrong = 'rgba(26, 21, 18, 0.18)';
+const ashhalf = 'rgba(26, 21, 18, 0.58)';
+
+const {width: SCREEN_WIDTH, height: SCREEN_HEIGHT} = Dimensions.get('window');
+const SIDE_PAD = 20;
+const POSTER_W = SCREEN_WIDTH - SIDE_PAD * 2;
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'TemplatePreview'>;
 
@@ -52,7 +56,6 @@ export default function TemplatePreviewScreen({route, navigation}: Props) {
   const profile = useUserStore(s => s.profile);
   const isPremium = useSubscriptionStore(s => s.isPremium);
   const [schema, setSchema] = useState<Template | null>(null);
-  const [loading, setLoading] = useState(true);
   const [imageLoaded, setImageLoaded] = useState(false);
   const [exporting, setExporting] = useState(false);
   const webViewRef = useRef<WebView>(null);
@@ -62,16 +65,15 @@ export default function TemplatePreviewScreen({route, navigation}: Props) {
   const cdnBase = Config.CLOUDFRONT_DOMAIN || '';
   const editorHtml = getEditorHtml(cdnBase);
 
-  const imageScale = useSharedValue(0.92);
+  const imageScale = useSharedValue(0.96);
   const imageOpacity = useSharedValue(0);
-  const actionsTranslateY = useSharedValue(40);
+  const actionsTranslateY = useSharedValue(30);
   const actionsOpacity = useSharedValue(0);
 
   useEffect(() => {
     loadSchema();
   }, []);
 
-  // When canvas is ready and schema loaded, send quick render
   useEffect(() => {
     if (canvasReady && schema) {
       webViewRef.current?.postMessage(
@@ -92,19 +94,17 @@ export default function TemplatePreviewScreen({route, navigation}: Props) {
     } catch {
       Alert.alert('Error', 'Failed to load template');
       navigation.goBack();
-    } finally {
-      setLoading(false);
     }
   }
 
   function handleImageLoad() {
     setImageLoaded(true);
-    imageScale.value = withSpring(1, springs.smooth);
-    imageOpacity.value = withTiming(1, timing.normal);
+    imageScale.value = withSpring(1, {damping: 14, stiffness: 120});
+    imageOpacity.value = withTiming(1, {duration: 320});
     setTimeout(() => {
-      actionsTranslateY.value = withSpring(0, springs.smooth);
-      actionsOpacity.value = withTiming(1, timing.normal);
-    }, 150);
+      actionsTranslateY.value = withSpring(0, {damping: 16, stiffness: 140});
+      actionsOpacity.value = withTiming(1, {duration: 260});
+    }, 120);
   }
 
   const imageStyle = useAnimatedStyle(() => ({
@@ -163,10 +163,10 @@ export default function TemplatePreviewScreen({route, navigation}: Props) {
 
       setExporting(false);
       Alert.alert(
-        'Downloaded',
-        `Saved to ${Platform.OS === 'android' ? 'Downloads' : 'Documents'}`,
+        'Saved',
+        `Your poster is in ${Platform.OS === 'android' ? 'Downloads' : 'Documents'}.`,
         [
-          {text: 'OK'},
+          {text: 'Done'},
           {
             text: 'Share',
             onPress: () => handleShare(path),
@@ -186,7 +186,7 @@ export default function TemplatePreviewScreen({route, navigation}: Props) {
     });
 
     if (!renderComplete) {
-      Alert.alert('Please wait', 'Template is still loading');
+      Alert.alert('Almost ready', 'Template is still loading — try again in a second.');
       return;
     }
 
@@ -203,7 +203,7 @@ export default function TemplatePreviewScreen({route, navigation}: Props) {
     });
     try {
       await Share.share({
-        message: 'Check out this poster I made with Poster!',
+        message: 'Check out this poster I made.',
         url: filePath
           ? Platform.OS === 'ios'
             ? filePath
@@ -223,14 +223,30 @@ export default function TemplatePreviewScreen({route, navigation}: Props) {
     }
   }
 
+  function handleBack() {
+    ReactNativeHapticFeedback.trigger('impactLight', {
+      enableVibrateFallback: true,
+      ignoreAndroidSystemSettings: false,
+    });
+    navigation.goBack();
+  }
+
+  const categoryMeta = CATEGORIES.find(c => c.id === meta.category);
+  const categoryLabel = categoryMeta?.label ?? 'Poster';
+  const categoryHi = categoryMeta?.hi;
+  const categoryColor = categoryMeta?.color ?? saffron;
+  const languageLabel = (meta.language || '').toUpperCase();
+
   return (
     <View style={styles.screen}>
-      <StatusBar
-        barStyle="light-content"
-        backgroundColor={colors.surfaceDark}
+      <StatusBar barStyle="dark-content" backgroundColor={paper} />
+      <LinearGradient
+        colors={[paper, paperDeep]}
+        style={StyleSheet.absoluteFillObject}
+        pointerEvents="none"
       />
 
-      {/* Hidden canvas WebView for rendering */}
+      {/* Hidden canvas for rendering export */}
       <WebView
         ref={webViewRef}
         source={{html: editorHtml}}
@@ -244,68 +260,107 @@ export default function TemplatePreviewScreen({route, navigation}: Props) {
         mixedContentMode="always"
       />
 
-      {/* Preview Image */}
-      <View style={styles.imageContainer}>
-        {!imageLoaded && (
-          <SkeletonLoader
-            width={IMAGE_SIZE}
-            height={IMAGE_SIZE}
-            borderRadius={radii.xl}
-            style={styles.skeleton}
-          />
-        )}
-
-        <Animated.Image
-          source={{uri: meta.thumbnail_url}}
-          style={[styles.heroImage, imageStyle]}
-          resizeMode="contain"
-          onLoad={handleImageLoad}
-        />
-
-        {!isPremium() && meta.premium && <WatermarkOverlay />}
-
-        {meta.premium && (
-          <FadeIn delay={300} style={styles.premiumPill}>
-            <Text style={[typography.labelSmall, styles.premiumPillText]}>
-              PRO
-            </Text>
-          </FadeIn>
-        )}
-      </View>
-
-      {/* Floating Action Bar */}
-      <Animated.View style={[styles.actionBar, actionsStyle]}>
-        <View style={styles.actionBarInner}>
-          <View style={styles.quickActions}>
-            <Button
-              title={exporting ? 'Saving...' : 'Download'}
-              onPress={handleDownload}
-              size="medium"
-              style={styles.actionButton}
-              disabled={exporting}
-            />
-            <Button
-              title="Share"
-              onPress={() => handleShare()}
-              variant="secondary"
-              size="medium"
-              style={styles.actionButton}
-            />
+      {/* Header */}
+      <FadeIn delay={0} distance={6}>
+        <View style={styles.header}>
+          <Pressable
+            onPress={handleBack}
+            style={({pressed}) => [
+              styles.backBtn,
+              pressed && styles.backBtnPressed,
+            ]}
+            hitSlop={10}>
+            <View style={styles.backArrow} />
+          </Pressable>
+          <View style={styles.headerMeta}>
+            <View style={styles.kickerRow}>
+              <View
+                style={[styles.kickerDot, {backgroundColor: categoryColor}]}
+              />
+              <Text style={styles.kicker} numberOfLines={1}>
+                {categoryLabel.toUpperCase()}
+              </Text>
+              {!!languageLabel && (
+                <>
+                  <View style={styles.kickerSep} />
+                  <Text style={styles.kicker}>{languageLabel}</Text>
+                </>
+              )}
+            </View>
+            {!!categoryHi && (
+              <Text style={styles.headerTitle} numberOfLines={1}>
+                {categoryHi}
+              </Text>
+            )}
           </View>
-
-          <Button
-            title="Open in Editor"
-            onPress={handleEdit}
-            variant="ghost"
-            size="medium"
-          />
-
-          {meta.premium && !isPremium() && (
-            <Text style={[typography.caption, styles.premiumNote]}>
-              Premium template — download includes watermark
-            </Text>
+          {meta.premium && (
+            <View style={styles.proPill}>
+              <Text style={styles.proPillText}>PRO</Text>
+            </View>
           )}
         </View>
+      </FadeIn>
+
+      {/* Poster */}
+      <View style={styles.posterArea}>
+        <FadeIn delay={60} distance={10} style={styles.posterWrap}>
+          <Animated.View style={[styles.posterCard, imageStyle]}>
+            {!imageLoaded && (
+              <View style={styles.posterLoading}>
+                <ActivityIndicator color={ashhalf} />
+              </View>
+            )}
+            <Image
+              source={{uri: meta.thumbnail_url}}
+              style={styles.posterImage}
+              resizeMode="cover"
+              onLoad={handleImageLoad}
+            />
+            {!isPremium() && meta.premium && <WatermarkOverlay />}
+          </Animated.View>
+        </FadeIn>
+      </View>
+
+      {/* Action bar */}
+      <Animated.View style={[styles.actionBar, actionsStyle]}>
+        <View style={styles.ctaRow}>
+          <Pressable
+            onPress={handleDownload}
+            disabled={exporting}
+            style={({pressed}) => [
+              styles.ctaPrimary,
+              pressed && styles.ctaPrimaryPressed,
+              exporting && styles.ctaDisabled,
+            ]}>
+            {exporting ? (
+              <ActivityIndicator color="#FFFFFF" size="small" />
+            ) : (
+              <Text style={styles.ctaPrimaryText}>Download</Text>
+            )}
+          </Pressable>
+          <Pressable
+            onPress={() => handleShare()}
+            style={({pressed}) => [
+              styles.ctaSecondary,
+              pressed && styles.ctaSecondaryPressed,
+            ]}>
+            <Text style={styles.ctaSecondaryText}>Share</Text>
+          </Pressable>
+        </View>
+        <Pressable
+          onPress={handleEdit}
+          style={({pressed}) => [
+            styles.ctaGhost,
+            pressed && styles.ctaGhostPressed,
+          ]}>
+          <Text style={styles.ctaGhostText}>Open in Editor</Text>
+          <Text style={styles.ctaGhostArrow}>→</Text>
+        </Pressable>
+        {meta.premium && !isPremium() && (
+          <Text style={styles.premiumNote}>
+            Premium template — free download includes a watermark
+          </Text>
+        )}
       </Animated.View>
     </View>
   );
@@ -314,7 +369,7 @@ export default function TemplatePreviewScreen({route, navigation}: Props) {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: colors.surfaceDark,
+    backgroundColor: paper,
   },
   hiddenWebView: {
     position: 'absolute',
@@ -322,58 +377,201 @@ const styles = StyleSheet.create({
     height: 1,
     opacity: 0,
   },
-  imageContainer: {
+
+  // Header
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingTop: 20,
+    paddingBottom: 16,
+    paddingHorizontal: SIDE_PAD,
+    gap: 14,
+  },
+  backBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: hairStrong,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  backBtnPressed: {
+    backgroundColor: paperDeep,
+  },
+  backArrow: {
+    width: 9,
+    height: 9,
+    borderLeftWidth: 2,
+    borderBottomWidth: 2,
+    borderColor: ink,
+    transform: [{rotate: '45deg'}],
+    marginLeft: 4,
+  },
+  headerMeta: {
+    flex: 1,
+  },
+  kickerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  kickerDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  kicker: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: ink,
+    letterSpacing: 1.8,
+  },
+  kickerSep: {
+    width: 3,
+    height: 3,
+    borderRadius: 1.5,
+    backgroundColor: hairStrong,
+    marginHorizontal: 2,
+  },
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: ink,
+    letterSpacing: -0.3,
+    marginTop: 2,
+  },
+  proPill: {
+    backgroundColor: ink,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 100,
+  },
+  proPillText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: 1.4,
+  },
+
+  // Poster
+  posterArea: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: layout.screenPaddingH,
+    paddingHorizontal: SIDE_PAD,
   },
-  skeleton: {
-    position: 'absolute',
+  posterWrap: {
+    width: POSTER_W,
+    aspectRatio: 1,
   },
-  heroImage: {
-    width: IMAGE_SIZE,
-    height: IMAGE_SIZE,
-    borderRadius: radii.xl,
+  posterCard: {
+    width: POSTER_W,
+    aspectRatio: 1,
+    borderRadius: 6,
+    overflow: 'hidden',
+    backgroundColor: ink,
+    shadowColor: ink,
+    shadowOffset: {width: 0, height: 12},
+    shadowOpacity: 0.18,
+    shadowRadius: 24,
+    elevation: 12,
   },
-  premiumPill: {
-    position: 'absolute',
-    top: spacing['5xl'],
-    right: layout.screenPaddingH + spacing.md,
-    backgroundColor: colors.accent,
-    borderRadius: radii.full,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs,
-    ...shadows.md,
+  posterImage: {
+    width: '100%',
+    height: '100%',
   },
-  premiumPillText: {
-    color: colors.textPrimary,
-    fontWeight: '800',
-    letterSpacing: 0.5,
+  posterLoading: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: paperDeep,
   },
+
+  // Action bar
   actionBar: {
-    paddingHorizontal: layout.screenPaddingH,
-    paddingBottom: spacing['4xl'],
-    paddingTop: spacing.lg,
+    paddingHorizontal: SIDE_PAD,
+    paddingTop: 20,
+    paddingBottom: 28,
+    borderTopWidth: 1,
+    borderTopColor: hair,
+    backgroundColor: paper,
+    gap: 12,
   },
-  actionBarInner: {
-    backgroundColor: colors.surfaceDarkElevated,
-    borderRadius: radii['2xl'],
-    padding: spacing.lg,
-    gap: spacing.md,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.06)',
-  },
-  quickActions: {
+  ctaRow: {
     flexDirection: 'row',
-    gap: spacing.md,
+    gap: 10,
   },
-  actionButton: {
+  ctaPrimary: {
     flex: 1,
+    height: 54,
+    borderRadius: 2,
+    backgroundColor: saffron,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: saffronDeep,
+    shadowOffset: {width: 0, height: 6},
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
+    elevation: 6,
+  },
+  ctaPrimaryPressed: {
+    backgroundColor: saffronDeep,
+  },
+  ctaDisabled: {
+    opacity: 0.6,
+  },
+  ctaPrimaryText: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: 0.3,
+  },
+  ctaSecondary: {
+    flex: 1,
+    height: 54,
+    borderRadius: 2,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: hairStrong,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  ctaSecondaryPressed: {
+    backgroundColor: paperDeep,
+  },
+  ctaSecondaryText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: ink,
+    letterSpacing: 0.3,
+  },
+  ctaGhost: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    gap: 6,
+  },
+  ctaGhostPressed: {
+    opacity: 0.6,
+  },
+  ctaGhostText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: ink,
+    letterSpacing: 0.2,
+  },
+  ctaGhostArrow: {
+    fontSize: 16,
+    color: saffron,
+    fontWeight: '800',
   },
   premiumNote: {
     textAlign: 'center',
-    color: colors.textTertiary,
-    marginTop: spacing.xs,
+    fontSize: 12,
+    color: ashhalf,
+    marginTop: 2,
   },
 });
