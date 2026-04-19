@@ -44,7 +44,6 @@ const {width: SCREEN_WIDTH} = Dimensions.get('window');
 const SIDE_PAD = 20;
 const GRID_GAP = 12;
 const CARD_W = (SCREEN_WIDTH - SIDE_PAD * 2 - GRID_GAP) / 2;
-const BIG_CARD_W = SCREEN_WIDTH - SIDE_PAD * 2;
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'HomeScreen'>;
 
@@ -351,30 +350,33 @@ export default function HomeScreen({navigation}: Props) {
         </FadeIn>
 
         {isLoading && !refreshing ? (
-          <View style={styles.trendingList}>
-            {[0, 1, 2].map(i => (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.dailyScroll}>
+            {[0, 1, 2, 3].map(i => (
               <View
                 key={i}
-                style={[
-                  styles.cardSkeleton,
-                  {width: BIG_CARD_W, height: BIG_CARD_W * 1.3},
-                ]}
+                style={[styles.cardSkeleton, {width: 180, height: 180 * 1.3}]}
               />
             ))}
-          </View>
+          </ScrollView>
         ) : (
-          <View style={styles.trendingList}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.dailyScroll}>
             {trendingTemplates.map((t, i) => (
               <TemplateCard
                 key={t.id}
                 template={t}
                 onPress={() => handleTemplatePress(t)}
-                width={BIG_CARD_W}
-                height={BIG_CARD_W * 1.3}
+                width={180}
+                height={180 * 1.3}
                 index={i}
               />
             ))}
-          </View>
+          </ScrollView>
         )}
 
         <View style={styles.bottomSpacer} />
@@ -577,12 +579,6 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     paddingHorizontal: SIDE_PAD,
     gap: GRID_GAP,
-  },
-
-  // Trending — single column of big full-width cards
-  trendingList: {
-    paddingHorizontal: SIDE_PAD,
-    gap: 20,
   },
 
   // Card
