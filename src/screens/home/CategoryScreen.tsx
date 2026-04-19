@@ -9,13 +9,14 @@ import {
   Dimensions,
   StatusBar,
   Pressable,
+  Alert,
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import ReactNativeHapticFeedback from 'react-native-haptic-feedback';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {HomeStackParamList} from '../../navigation/types';
 import {useTemplateStore} from '../../store/templateStore';
-import {getTemplates} from '../../services/templates';
+import {getTemplates, getTemplateSchema} from '../../services/templates';
 import {TemplateMeta} from '../../types/template';
 import TemplateCard from '../../components/TemplateCard';
 import FadeIn from '../../components/FadeIn';
@@ -48,6 +49,7 @@ export default function CategoryScreen({route, navigation}: Props) {
   const [refreshing, setRefreshing] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [openingId, setOpeningId] = useState<string | null>(null);
 
   const categoryMeta = CATEGORIES.find(c => c.id === categoryId);
   const categoryColor = categoryMeta?.color ?? saffron;
@@ -106,6 +108,23 @@ export default function CategoryScreen({route, navigation}: Props) {
       ignoreAndroidSystemSettings: false,
     });
     navigation.goBack();
+  }
+
+  async function handleTemplatePress(meta: TemplateMeta) {
+    if (openingId) return;
+    ReactNativeHapticFeedback.trigger('impactMedium', {
+      enableVibrateFallback: true,
+      ignoreAndroidSystemSettings: false,
+    });
+    setOpeningId(meta.id);
+    try {
+      const schema = await getTemplateSchema(meta.schema_url);
+      navigation.navigate('Editor', {template: schema});
+    } catch {
+      Alert.alert('Error', 'Could not open this template. Try another.');
+    } finally {
+      setOpeningId(null);
+    }
   }
 
   function Header() {
@@ -194,9 +213,7 @@ export default function CategoryScreen({route, navigation}: Props) {
             <FadeIn delay={index * 35} direction="up" distance={10}>
               <TemplateCard
                 template={item}
-                onPress={() =>
-                  navigation.navigate('TemplatePreview', {template: item})
-                }
+                onPress={() => handleTemplatePress(item)}
                 style={styles.card}
                 index={index}
               />
@@ -222,6 +239,15 @@ export default function CategoryScreen({route, navigation}: Props) {
             ) : null
           }
         />
+      )}
+
+      {openingId && (
+        <View style={styles.openingOverlay} pointerEvents="auto">
+          <View style={styles.openingCard}>
+            <ActivityIndicator color={saffron} size="large" />
+            <Text style={styles.openingText}>Opening editor…</Text>
+          </View>
+        </View>
       )}
     </View>
   );
@@ -331,5 +357,32 @@ const styles = StyleSheet.create({
   },
   footerLoader: {
     paddingVertical: 28,
+  },
+
+  // "Opening editor" overlay
+  openingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(26, 21, 18, 0.35)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  openingCard: {
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 28,
+    paddingVertical: 22,
+    borderRadius: 6,
+    alignItems: 'center',
+    gap: 12,
+    shadowColor: ink,
+    shadowOffset: {width: 0, height: 8},
+    shadowOpacity: 0.22,
+    shadowRadius: 18,
+    elevation: 10,
+  },
+  openingText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: ink,
+    letterSpacing: 0.4,
   },
 });
