@@ -122,7 +122,6 @@ export default function RootNavigator() {
         <RootStack.Screen
           name="ProfileSetup"
           component={ProfileScreen}
-          options={{headerShown: true, title: 'Set Up Your Profile'}}
         />
       ) : (
         <RootStack.Screen name="Main" component={MainNavigator} />
