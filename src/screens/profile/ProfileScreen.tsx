@@ -149,6 +149,10 @@ export default function ProfileScreen() {
         cropperStatusBarColor: '#FAF5EC',
         cropperToolbarColor: '#FAF5EC',
         cropperToolbarWidgetColor: '#1A1512',
+        hideBottomControls: true,
+        showCropGuidelines: false,
+        showCropFrame: type !== 'photo',
+        enableRotationGesture: false,
         forceJpg: type === 'photo',
         includeBase64: false,
       });
