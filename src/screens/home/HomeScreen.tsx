@@ -44,6 +44,7 @@ const {width: SCREEN_WIDTH} = Dimensions.get('window');
 const SIDE_PAD = 20;
 const GRID_GAP = 12;
 const CARD_W = (SCREEN_WIDTH - SIDE_PAD * 2 - GRID_GAP) / 2;
+const BIG_CARD_W = SCREEN_WIDTH - SIDE_PAD * 2;
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'HomeScreen'>;
 
@@ -350,23 +351,26 @@ export default function HomeScreen({navigation}: Props) {
         </FadeIn>
 
         {isLoading && !refreshing ? (
-          <View style={styles.grid}>
-            {[0, 1, 2, 3].map(i => (
+          <View style={styles.trendingList}>
+            {[0, 1, 2].map(i => (
               <View
                 key={i}
-                style={[styles.cardSkeleton, {width: CARD_W, height: CARD_W * 1.3}]}
+                style={[
+                  styles.cardSkeleton,
+                  {width: BIG_CARD_W, height: BIG_CARD_W * 1.3},
+                ]}
               />
             ))}
           </View>
         ) : (
-          <View style={styles.grid}>
+          <View style={styles.trendingList}>
             {trendingTemplates.map((t, i) => (
               <TemplateCard
                 key={t.id}
                 template={t}
                 onPress={() => handleTemplatePress(t)}
-                width={CARD_W}
-                height={CARD_W * 1.3}
+                width={BIG_CARD_W}
+                height={BIG_CARD_W * 1.3}
                 index={i}
               />
             ))}
@@ -573,6 +577,12 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     paddingHorizontal: SIDE_PAD,
     gap: GRID_GAP,
+  },
+
+  // Trending — single column of big full-width cards
+  trendingList: {
+    paddingHorizontal: SIDE_PAD,
+    gap: 20,
   },
 
   // Card
