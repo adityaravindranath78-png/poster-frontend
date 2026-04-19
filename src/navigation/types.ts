@@ -8,20 +8,21 @@ export type AuthStackParamList = {
 
 export type MainTabParamList = {
   Home: undefined;
-  Editor: {template?: Template} | undefined;
+  MyWork: undefined;
   Profile: undefined;
-  Settings: undefined;
 };
 
 export type HomeStackParamList = {
   HomeScreen: undefined;
   Category: {categoryId: string; categoryLabel: string};
   TemplatePreview: {template: TemplateMeta};
+  Editor: {template?: Template} | undefined;
 };
 
 export type ProfileStackParamList = {
   ProfileScreen: undefined;
   Subscription: undefined;
+  Settings: undefined;
 };
 
 export type RootStackParamList = {

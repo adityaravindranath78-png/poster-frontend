@@ -20,7 +20,7 @@ import Animated, {
 import ReactNativeHapticFeedback from 'react-native-haptic-feedback';
 import ImagePicker from 'react-native-image-crop-picker';
 import LinearGradient from 'react-native-linear-gradient';
-import {useRoute} from '@react-navigation/native';
+import {useNavigation, useRoute} from '@react-navigation/native';
 import {useUserStore} from '../../store/userStore';
 import {updateProfile} from '../../services/user';
 import {uploadProfilePhoto, uploadLogo} from '../../services/storage';
@@ -100,6 +100,7 @@ function Field({
 
 export default function ProfileScreen() {
   const route = useRoute();
+  const navigation = useNavigation<any>();
   const isInitialSetup = route.name === 'ProfileSetup';
 
   const profile = useUserStore(s => s.profile);
@@ -408,6 +409,32 @@ export default function ProfileScreen() {
             </Pressable>
           </FadeIn>
 
+          {!isInitialSetup && (
+            <FadeIn delay={680}>
+              <View style={styles.secondaryLinks}>
+                <Pressable
+                  onPress={() => navigation.navigate('Subscription')}
+                  style={({pressed}) => [
+                    styles.linkRow,
+                    pressed && styles.linkRowPressed,
+                  ]}>
+                  <Text style={styles.linkLabel}>Premium</Text>
+                  <Text style={styles.linkArrow}>→</Text>
+                </Pressable>
+                <View style={styles.linkDivider} />
+                <Pressable
+                  onPress={() => navigation.navigate('Settings')}
+                  style={({pressed}) => [
+                    styles.linkRow,
+                    pressed && styles.linkRowPressed,
+                  ]}>
+                  <Text style={styles.linkLabel}>Settings</Text>
+                  <Text style={styles.linkArrow}>→</Text>
+                </Pressable>
+              </View>
+            </FadeIn>
+          )}
+
         </ScrollView>
       </KeyboardAvoidingView>
     </View>
@@ -706,6 +733,34 @@ const styles = StyleSheet.create({
   saveWrap: {
     marginTop: 'auto',
     paddingTop: 16,
+  },
+  secondaryLinks: {
+    marginTop: 20,
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: hair,
+  },
+  linkRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 16,
+  },
+  linkRowPressed: {
+    opacity: 0.55,
+  },
+  linkLabel: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: ink,
+  },
+  linkArrow: {
+    fontSize: 16,
+    color: ashmute,
+  },
+  linkDivider: {
+    height: 1,
+    backgroundColor: hair,
   },
   cta: {
     backgroundColor: saffron,

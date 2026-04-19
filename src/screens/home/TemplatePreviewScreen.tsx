@@ -219,7 +219,7 @@ export default function TemplatePreviewScreen({route, navigation}: Props) {
       ignoreAndroidSystemSettings: false,
     });
     if (schema) {
-      navigation.getParent()?.navigate('Editor', {template: schema});
+      navigation.navigate('Editor', {template: schema});
     }
   }
 
