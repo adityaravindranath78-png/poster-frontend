@@ -59,6 +59,7 @@ type CatCardProps = {
   label: string;
   hi: string;
   color: string;
+  thumbnail?: string | null;
   width: number;
   height: number;
   onPress: () => void;
@@ -69,11 +70,13 @@ function CategoryCard({
   label,
   hi,
   color,
+  thumbnail,
   width,
   height,
   onPress,
   index,
 }: CatCardProps) {
+  const [loaded, setLoaded] = useState(false);
   return (
     <FadeIn delay={60 + index * 30} distance={12}>
       <Pressable
@@ -83,8 +86,27 @@ function CategoryCard({
           {width, height, backgroundColor: color},
           pressed && styles.catCardPressed,
         ]}>
+        {/* Color gradient fallback — always behind image */}
         <LinearGradient
           colors={[color, '#1A0A05']}
+          style={StyleSheet.absoluteFillObject}
+          pointerEvents="none"
+        />
+        {thumbnail ? (
+          <Image
+            source={{uri: thumbnail}}
+            style={[
+              StyleSheet.absoluteFillObject,
+              !loaded && {opacity: 0},
+            ]}
+            onLoad={() => setLoaded(true)}
+            resizeMode="cover"
+          />
+        ) : null}
+        {/* Dark fade at bottom so label is always legible on any image */}
+        <LinearGradient
+          colors={['transparent', 'rgba(0, 0, 0, 0.78)']}
+          locations={[0.45, 1]}
           style={StyleSheet.absoluteFillObject}
           pointerEvents="none"
         />
@@ -195,6 +217,9 @@ export default function HomeScreen({navigation}: Props) {
   const profile = useUserStore(s => s.profile);
   const scrollY = useSharedValue(0);
   const [refreshing, setRefreshing] = useState(false);
+  const [categoryPreviews, setCategoryPreviews] = useState<
+    Record<string, string | null>
+  >({});
 
   const scrollHandler = useAnimatedScrollHandler({
     onScroll: e => {
@@ -215,12 +240,26 @@ export default function HomeScreen({navigation}: Props) {
     setLoading(true);
     setError(null);
     try {
-      const [daily, trending] = await Promise.all([
+      const [daily, trending, ...perCategory] = await Promise.all([
         getDailyTemplates(selectedLanguage),
         getTemplates({language: selectedLanguage, limit: 10}),
+        ...CATEGORIES.map(cat =>
+          getTemplates({
+            category: cat.id,
+            language: selectedLanguage,
+            limit: 1,
+          })
+            .then(r => ({id: cat.id, thumb: r.data[0]?.thumbnail_url ?? null}))
+            .catch(() => ({id: cat.id, thumb: null})),
+        ),
       ]);
       setDailyTemplates(daily.data);
       setTrendingTemplates(trending.data);
+      const previews: Record<string, string | null> = {};
+      perCategory.forEach(p => {
+        previews[p.id] = p.thumb;
+      });
+      setCategoryPreviews(previews);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to load';
       setError(msg);
@@ -351,6 +390,7 @@ export default function HomeScreen({navigation}: Props) {
               label={cat.label}
               hi={cat.hi}
               color={cat.color}
+              thumbnail={categoryPreviews[cat.id]}
               width={CARD_W}
               height={CARD_W * 1.3}
               index={i}
