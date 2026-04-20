@@ -62,7 +62,8 @@ export default function TemplatePreviewScreen({route, navigation}: Props) {
   const [canvasReady, setCanvasReady] = useState(false);
   const [renderComplete, setRenderComplete] = useState(false);
 
-  const cdnBase = Config.CLOUDFRONT_DOMAIN || '';
+  const cdnBase =
+    Config.CLOUDFRONT_DOMAIN || 'dklcr2on9ks6p.cloudfront.net';
   const editorHtml = getEditorHtml(cdnBase);
 
   const imageScale = useSharedValue(0.96);

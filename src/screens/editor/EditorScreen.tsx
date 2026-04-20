@@ -310,7 +310,8 @@ export default function EditorScreen({route, navigation}: Props) {
   const [bgPanelOpen, setBgPanelOpen] = useState(false);
   const pendingTemplate = useRef(route.params?.template || null);
 
-  const cdnBase = Config.CLOUDFRONT_DOMAIN || '';
+  const cdnBase =
+    Config.CLOUDFRONT_DOMAIN || 'dklcr2on9ks6p.cloudfront.net';
   const editorHtml = getEditorHtml(cdnBase);
 
   // BG panel slide animation
