@@ -32,9 +32,10 @@ export function getEditorHtml(cdnBase: string): string {
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-html,body{width:100vw;height:100vh;overflow:hidden;background:#1A1A1A;touch-action:none}
-#wrap{width:100vw;height:100vh;display:flex;justify-content:center;align-items:center;overflow:hidden}
-canvas{display:block}
+html,body{width:100vw;height:100vh;overflow:hidden;background:#0F0C0A;touch-action:none}
+#wrap{width:100vw;height:100vh;display:flex;justify-content:center;align-items:center;overflow:hidden;padding:12px}
+.canvas-container{box-shadow:0 14px 40px rgba(0,0,0,0.55);border-radius:6px;overflow:hidden}
+canvas{display:block;background:#FFFFFF}
 </style>
 </head>
 <body>
@@ -144,15 +145,20 @@ canvas{display:block}
       var cw = tmpl.canvas.width || 1080;
       var ch = tmpl.canvas.height || 1080;
       if(!canvas) initCanvas(cw, ch);
-      else { canvas.setWidth(cw); canvas.setHeight(ch); }
+      else { canvas.setWidth(cw); canvas.setHeight(ch); rescaleWrapper(cw, ch); }
       canvas.clear();
+      canvas.backgroundColor = '#FFFFFF';
+
+      post('DEBUG', {stage:'load-start', id: tmpl.id, layerCount: (tmpl.layers||[]).length, hasProfile: !!profile, photoUrl: profile && profile.photoUrl || null, cdn: CDN});
 
       var layers = (tmpl.layers || []).slice().sort(function(a,b){ return (a.z||0)-(b.z||0); });
 
       for(var i=0; i<layers.length; i++){
         var L = layers[i];
         try { await addLayerToCanvas(L, profile, editMode); }
-        catch(e){ console.warn('Layer skip:', e.message); }
+        catch(e){
+          post('DEBUG', {stage:'layer-fail', index:i, type:L.type, key:L.key, src:L.src, error:e.message});
+        }
       }
 
       canvas.renderAll();
@@ -164,6 +170,26 @@ canvas{display:block}
       post('ERROR', {message: 'Load failed: ' + e.message});
     }
   }
+
+  function rescaleWrapper(w, h){
+    var maxW = window.innerWidth;
+    var maxH = window.innerHeight;
+    var scale = Math.min(maxW/w, maxH/h, 1);
+    var displayW = Math.floor(w * scale);
+    var displayH = Math.floor(h * scale);
+    if(!canvas || !canvas.wrapperEl) return;
+    canvas.wrapperEl.style.width = displayW + 'px';
+    canvas.wrapperEl.style.height = displayH + 'px';
+    var canvases = canvas.wrapperEl.querySelectorAll('canvas');
+    for(var ci=0; ci<canvases.length; ci++){
+      canvases[ci].style.width = displayW + 'px';
+      canvases[ci].style.height = displayH + 'px';
+    }
+  }
+
+  window.addEventListener('resize', function(){
+    if(canvas) rescaleWrapper(canvas.width, canvas.height);
+  });
 
   async function addLayerToCanvas(L, profile, editMode){
     switch(L.type){

@@ -402,6 +402,9 @@ export default function EditorScreen({route, navigation}: Props) {
         case 'ERROR':
           console.warn('[Canvas]', msg.message);
           break;
+        case 'DEBUG':
+          console.log('[Canvas debug]', JSON.stringify(msg));
+          break;
       }
     } catch {}
   }
