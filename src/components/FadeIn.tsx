@@ -5,6 +5,7 @@ import Animated, {
   useAnimatedStyle,
   withSpring,
   withDelay,
+  ReduceMotion,
 } from 'react-native-reanimated';
 import {springs} from '../theme';
 
@@ -34,7 +35,7 @@ export default function FadeIn({
   );
 
   useEffect(() => {
-    const config = springs[spring];
+    const config = {...springs[spring], reduceMotion: ReduceMotion.Never};
     opacity.value = withDelay(delay, withSpring(1, config));
     translateX.value = withDelay(delay, withSpring(0, config));
     translateY.value = withDelay(delay, withSpring(0, config));

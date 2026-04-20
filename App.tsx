@@ -13,6 +13,7 @@ import Animated, {
   withSpring,
   withDelay,
   Easing,
+  ReduceMotion,
 } from 'react-native-reanimated';
 import RootNavigator from './src/navigation/RootNavigator';
 import {useAuthStore} from './src/store/authStore';
@@ -38,11 +39,27 @@ function SplashScreen() {
   const dotPulse = useSharedValue(1);
 
   useEffect(() => {
-    opacity.value = withTiming(1, {duration: 300, easing: Easing.out(Easing.quad)});
-    scale.value = withSpring(1, {damping: 18, stiffness: 140});
+    opacity.value = withTiming(1, {
+      duration: 300,
+      easing: Easing.out(Easing.quad),
+      reduceMotion: ReduceMotion.Never,
+    });
+    scale.value = withSpring(1, {
+      damping: 18,
+      stiffness: 140,
+      reduceMotion: ReduceMotion.Never,
+    });
     dotPulse.value = withDelay(
       300,
-      withRepeat(withTiming(1.4, {duration: 900, easing: Easing.inOut(Easing.quad)}), -1, true),
+      withRepeat(
+        withTiming(1.4, {
+          duration: 900,
+          easing: Easing.inOut(Easing.quad),
+          reduceMotion: ReduceMotion.Never,
+        }),
+        -1,
+        true,
+      ),
     );
   }, [opacity, scale, dotPulse]);
 
