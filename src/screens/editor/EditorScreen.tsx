@@ -308,7 +308,6 @@ export default function EditorScreen({route, navigation}: Props) {
   const [templateLoaded, setTemplateLoaded] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [bgPanelOpen, setBgPanelOpen] = useState(false);
-  const pendingTemplate = useRef(route.params?.template || null);
 
   const cdnBase =
     Config.CLOUDFRONT_DOMAIN || 'dklcr2on9ks6p.cloudfront.net';
@@ -337,34 +336,24 @@ export default function EditorScreen({route, navigation}: Props) {
     webViewRef.current?.postMessage(JSON.stringify(message));
   }, []);
 
-  // Load template once canvas is ready
+  // Load template when canvas becomes ready OR when the nav-param template
+  // changes. Single effect prevents the race where two load-starts double-fire
+  // and the second canvas.clear() wipes the first's objects.
+  const loadedIdRef = useRef<string | null>(null);
   useEffect(() => {
-    if (ready && pendingTemplate.current) {
-      send({
-        type: 'LOAD_TEMPLATE',
-        template: pendingTemplate.current,
-        profile: profile || undefined,
-        cdnBase,
-      });
-      pendingTemplate.current = null;
-    }
-  }, [ready, send, profile, cdnBase]);
-
-  // React to new template from nav
-  useEffect(() => {
+    if (!ready) return;
     const tmpl = route.params?.template;
-    if (tmpl && ready) {
-      send({
-        type: 'LOAD_TEMPLATE',
-        template: tmpl,
-        profile: profile || undefined,
-        cdnBase,
-      });
-      setTemplateLoaded(false);
-    } else if (tmpl) {
-      pendingTemplate.current = tmpl;
-    }
-  }, [route.params?.template, ready, send, profile, cdnBase]);
+    if (!tmpl) return;
+    if (loadedIdRef.current === tmpl.id) return;
+    loadedIdRef.current = tmpl.id;
+    setTemplateLoaded(false);
+    send({
+      type: 'LOAD_TEMPLATE',
+      template: tmpl,
+      profile: profile || undefined,
+      cdnBase,
+    });
+  }, [ready, route.params?.template, send, profile, cdnBase]);
 
   function haptic(kind: 'light' | 'medium' | 'success') {
     const map = {
